@@ -300,7 +300,7 @@ export default function Home(){
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 py-4 flex flex-wrap gap-3 items-end">
+      <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 py-4 flex flex-wrap gap-3 items-end bg-white border border-zinc-200 rounded-xl shadow-sm mt-4">
         <div className="flex gap-2 items-end">
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-zinc-600">Inicio</span>
