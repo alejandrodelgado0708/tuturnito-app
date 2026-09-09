@@ -230,43 +230,121 @@ export default function Home(){
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>){
     const f=e.target.files?.[0]; if(!f) return;
     if(/\.(jpg|jpeg|png|webp)$/i.test(f.name) || f.type.startsWith("image/")){
-      const Tesseract:any = await import("tesseract.js");
-      const {data:{text}} = await Tesseract.recognize(f, "spa");
-      const lines=text.split("\n").map((l:string)=>l.trim()).filter(Boolean);
-      let dateCols:string[]=[];
-      for(const l of lines){
-        const m=l.match(/\d+\/\d+/g);
-        if(m && (l.toUpperCase().includes("FECHA")||l.toUpperCase().includes("LUNES"))) { dateCols=m.slice(0,7); break; }
-      }
-      if(!dateCols.length) dateCols=Array.from({length:7},(_,i)=>`${i+1}/9`);
-      const rows:{excelName:string, shifts:Record<string,Shift>}[]=[];
-      for(const line of lines){
-        if(!line || line.toUpperCase().includes("EMPLEADOS")||line.toUpperCase().includes("COLABORADOR")||line.toUpperCase().includes("FECHA")||line.toUpperCase().includes("HS.")) continue;
-        const parts=line.split(/\s{2,}|\t/).map((p:string)=>p.trim()).filter(Boolean);
-        if(parts.length<2) continue;
-        const name=parts[0].replace(/^\d+\s*/,"").trim();
-        if(name.length<3 || /^\d/.test(name) || ["LUNES","MARTES","COLABORADORES","SEMANAL"].some(k=>name.toUpperCase().includes(k))) continue;
-        const cells=line.split(/\s{2,}/).slice(1);
-        if(cells.length<2){
-          const toks=line.split(/\s+/);
-          if(toks.length<3) continue;
+      const preprocess = async (file:File): Promise<HTMLCanvasElement> => {
+        const url=URL.createObjectURL(file);
+        const img=await new Promise<HTMLImageElement>((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
+        const canvas=document.createElement("canvas");
+        const scale=Math.min(2, 1200/img.width);
+        canvas.width=img.width*scale; canvas.height=img.height*scale;
+        const ctx=canvas.getContext("2d")!;
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        const imgData=ctx.getImageData(0,0,canvas.width,canvas.height);
+        const d=imgData.data;
+        for(let i=0;i<d.length;i+=4){
+          const g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+          const v=g>160?255:(g<100?0:g>140?255:0);
+          d[i]=d[i+1]=d[i+2]=v;
         }
-        const rawCells=parts.slice(1);
-        const shifts:Record<string,Shift>={};
-        dateCols.slice(0,7).forEach((d,i)=>{
-          const raw=rawCells[i]||"";
-          const parsed=parseCell(raw);
-          if(parsed!==undefined){
-            const iso=(()=>{
-              const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0"));
-              return `${new Date().getFullYear()}-${mon}-${day}`;
-            })();
-            (shifts as any)[iso]=parsed;
-          }
-        });
-        if(Object.keys(shifts).length) rows.push({excelName:name.split(" ").slice(0,3).join(" "), shifts});
+        ctx.putImageData(imgData,0,0);
+        URL.revokeObjectURL(url);
+        return canvas;
+      };
+      const canvas=await preprocess(f);
+      const Tesseract:any = await import("tesseract.js");
+      const {data} = await Tesseract.recognize(canvas, "spa", { logger:()=>{} });
+      const text: string = data.text || "";
+      const words: any[] = data.words || [];
+      let dateCols:string[]=[];
+      const lines=text.split("\n").map((l:string)=>l.trim()).filter(Boolean);
+      for(const l of lines){
+        const m=l.match(/\b\d{1,2}\b/g);
+        if(m && m.length>=7 && (l.toUpperCase().includes("FECHA")||l.toUpperCase().includes("LUNES")||l.toUpperCase().includes("7"))) {
+          const nums=m.filter((n:string)=>parseInt(n)>=1&&parseInt(n)<=31).slice(0,7);
+          if(nums.length>=5) { dateCols=nums.map((n:string)=>n+"/9"); break; }
+        }
       }
-      if(!rows.length){ alert("No se detectaron empleados en la imagen. Probá con mejor calidad."); e.target.value=""; return; }
+      const fe=(l:string)=>l.match(/\d+\/\d+/g);
+      for(const l of lines){ const m=fe(l); if(m && m.length>=5){ dateCols=m.slice(0,7); break; } }
+      if(!dateCols.length) dateCols=["7/9","8/9","9/9","10/9","11/9","12/9","13/9"];
+      let rows:{excelName:string, shifts:Record<string,Shift>}[]=[];
+      if(words.length>20){
+        const rowsMap=new Map<number, any[]>();
+        for(const w of words){
+          const y=Math.round(w.bbox.y0/12)*12;
+          if(!rowsMap.has(y)) rowsMap.set(y,[]);
+          rowsMap.get(y)!.push(w);
+        }
+        const sortedRows=[...rowsMap.entries()].sort((a,b)=>b[0]-a[0]).map(([_,v])=>v.sort((a,b)=>a.bbox.x0-b.bbox.x0));
+        let headerIdx=-1, headerXs:number[]=[];
+        for(let i=0;i<sortedRows.length;i++){
+          const line=sortedRows[i].map((w:any)=>w.text).join(" ").toUpperCase();
+          if(line.includes("COLABORADOR")||line.includes("EMPLEADOS")){
+            headerIdx=i; headerXs=sortedRows[i].map((w:any)=>w.bbox.x0); break;
+          }
+        }
+        if(headerIdx!==-1){
+          for(let r=headerIdx+1;r<sortedRows.length;r++){
+            const line=sortedRows[r].map((w:any)=>w.text).join(" ").trim();
+            if(!line || line.toUpperCase().includes("CANTIDAD")||line.toUpperCase().includes("HS SEMAN")) break;
+            const first=sortedRows[r][0]?.text?.trim();
+            if(!first || first.length<2) continue;
+            if(["LUNES","MARTES","FECHA","CANTIDAD"].some(k=>line.toUpperCase().startsWith(k))) continue;
+            const name=sortedRows[r].slice(0,2).map((w:any)=>w.text).join(" ").trim();
+            if(name.length<3 || /^\d/.test(name)) continue;
+            if(name.toUpperCase().includes("COLABORADOR")||name.toUpperCase().includes("SEPTIEMBRE")) continue;
+            const cells:string[]=[];
+            for(let ci=1; ci<headerXs.length && ci<=7; ci++){
+              const hx=headerXs[ci];
+              const cand=sortedRows[r].filter((w:any)=>Math.abs(w.bbox.x0-hx)<90).map((w:any)=>w.text).join(" ").trim();
+              cells.push(cand);
+            }
+            if(cells.every(c=>!c)) continue;
+            const shifts:Record<string,Shift>={};
+            dateCols.slice(0,7).forEach((d,i)=>{
+              const raw=cells[i]||"";
+              const parsed=parseCell(raw);
+              if(parsed!==undefined){
+                const iso=(()=>{ const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0")); return `${new Date().getFullYear()}-${mon}-${day}`; })();
+                (shifts as any)[iso]=parsed;
+              }
+            });
+            if(Object.keys(shifts).length) rows.push({excelName:name.split(" ").slice(0,2).join(" "), shifts});
+          }
+        }
+      }
+      if(!rows.length){
+        for(const line of lines){
+          if(!line || line.toUpperCase().includes("COLABORADOR")||line.toUpperCase().includes("FECHA")||line.toUpperCase().includes("CANTIDAD")||line.toUpperCase().includes("HS SEMAN")) continue;
+          const m=line.match(/([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,2})/);
+          if(!m) continue;
+          const name=m[1].trim();
+          if(name.length<5) continue;
+          const rest=line.slice(line.indexOf(name)+name.length).trim();
+          const tokens=rest.split(/\s{2,}|\t/).filter(Boolean);
+          let cells:string[]=[];
+          if(tokens.length>=7) cells=tokens.slice(0,7);
+          else {
+            const found=(rest.match(/Franco|REUNION|\d{1,2}\s*a\s*\d{1,2}/gi) || []).slice(0,7);
+            cells=found;
+            while(cells.length<7) cells.push("");
+          }
+          const shifts:Record<string,Shift>={};
+          dateCols.slice(0,7).forEach((d,i)=>{
+            const raw=cells[i]||"";
+            const parsed=parseCell(raw);
+            if(parsed!==undefined){
+              const iso=(()=>{ const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0")); return `${new Date().getFullYear()}-${mon}-${day}`; })();
+              (shifts as any)[iso]=parsed;
+            }
+          });
+          if(Object.keys(shifts).length) rows.push({excelName:name, shifts});
+        }
+      }
+      if(!rows.length){
+        const t=text.slice(0,800);
+        alert("No se detectaron empleados. Texto OCR:\n"+t.slice(0,400)+"\n\nProbá recortando solo la tabla o con mejor luz.");
+        e.target.value=""; return;
+      }
       const merged=new Map<string, any>();
       for(const r of rows){ const k=r.excelName.toLowerCase(); if(!merged.has(k)) merged.set(k,{excelName:r.excelName, shifts:{}}); Object.assign(merged.get(k)!.shifts, r.shifts); }
       const final=[...merged.values()].map(r=>{
