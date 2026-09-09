@@ -258,20 +258,20 @@ export default function Home(){
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 pb-8 flex-1">
+      <div className="mx-auto w-full max-w-[1600px] px-2 sm:px-6 pb-8 flex-1">
         {loading ? <div className="p-12 text-center text-zinc-500">Cargando tablero...</div> : (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
-          <div className="overflow-auto">
-            <table className="w-full text-[15px] border-collapse min-w-[900px]">
+        <div className="bg-white sm:rounded-xl border-y sm:border border-zinc-200 overflow-hidden shadow-sm -mx-2 sm:mx-0">
+          <div className="overflow-auto overscroll-x-contain touch-pan-x scrollbar-thin">
+            <table className="w-full text-[13px] sm:text-[15px] border-collapse min-w-[640px] sm:min-w-[900px]">
               <thead>
                 <tr className="bg-zinc-50 border-b border-zinc-200">
-                  <th className="sticky left-0 z-10 bg-zinc-50 text-left p-3.5 font-semibold text-zinc-700 min-w-[220px] border-r border-zinc-200 text-[14px]">Persona</th>
+                  <th className="sticky left-0 z-10 bg-zinc-50 text-left p-2 sm:p-3.5 font-semibold text-zinc-700 min-w-[140px] sm:min-w-[220px] border-r border-zinc-200 text-[12px] sm:text-[14px]">Persona</th>
                   {dates.map(iso=>{
                     const d=parseISO(iso);
                     const isWE=d.getDay()===0||d.getDay()===6;
                     const isToday=iso===toISO(new Date());
                     return (
-                      <th key={iso} className={`p-3 text-center min-w-[148px] border-r border-zinc-100 last:border-0 ${isWE?"bg-[#02B681]/10":""} ${isToday?"bg-amber-50":""}`}>
+                      <th key={iso} className={`p-2 sm:p-3 text-center min-w-[110px] sm:min-w-[148px] border-r border-zinc-100 last:border-0 ${isWE?"bg-[#02B681]/10":""} ${isToday?"bg-amber-50":""}`}>
                         <div className={`text-xs ${isWE?"text-[#02B681]":"text-zinc-500"}`}>{DAY_NAMES[d.getDay()]}</div>
                         <div className={`font-semibold ${isToday?"text-amber-700":"text-zinc-900"}`}>{fmtDate(d)}</div>
                         <div className="text-[11px] text-zinc-400 font-normal">{DAY_FULL[d.getDay()]}</div>
@@ -283,13 +283,13 @@ export default function Home(){
               <tbody>
                 {visiblePeople.map(person=>(
                   <tr key={person.id} className="border-b border-zinc-100 hover:bg-zinc-50/50">
-                    <td className="sticky left-0 z-10 bg-white p-3 border-r border-zinc-200">
-                      <div className="flex items-center gap-2.5 group">
-                        <div className="h-9 w-9 rounded-full bg-[#02B681]/15 text-[#02B681] grid place-items-center font-semibold text-xs shrink-0">{person.name.slice(0,2).toUpperCase()}</div>
+                    <td className="sticky left-0 z-10 bg-white p-2 sm:p-3 border-r border-zinc-200">
+                      <div className="flex items-center gap-1.5 sm:gap-2.5 group">
+                        <div className="h-7 w-7 sm:h-9 sm:w-9 rounded-full bg-[#02B681]/15 text-[#02B681] grid place-items-center font-semibold text-[11px] sm:text-xs shrink-0">{person.name.slice(0,2).toUpperCase()}</div>
                         <div className="flex-1 min-w-0">
-                          <input defaultValue={person.name} onBlur={e=>renamePerson(person.id,e.target.value)} className="font-medium text-[14px] text-zinc-800 bg-transparent border border-transparent hover:border-zinc-200 focus:border-[#02B681]/40 focus:outline-none rounded px-1.5 py-0.5 w-full truncate"/>
-                          {person.email && <div className="text-[11px] text-zinc-500 px-1.5 truncate">{person.email}</div>}
-                          {person.role && <span className={`inline-block ml-1.5 mt-1 text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${person.role==="all"?"bg-[#02B681]/10 text-[#02B681] border-[#02B681]/20":"bg-zinc-100 text-zinc-600 border-zinc-200"}`}>{person.role==="all"?"Ve todos":"Solo su horario"}</span>}
+                          <input defaultValue={person.name} onBlur={e=>renamePerson(person.id,e.target.value)} className="font-medium text-[12px] sm:text-[14px] text-zinc-800 bg-transparent border border-transparent hover:border-zinc-200 focus:border-[#02B681]/40 focus:outline-none rounded px-1 sm:px-1.5 py-0.5 w-full truncate"/>
+                          {person.email && <div className="text-[10px] sm:text-[11px] text-zinc-500 px-1 sm:px-1.5 truncate">{person.email}</div>}
+                          {person.role && <span className={`inline-block ml-1 sm:ml-1.5 mt-1 text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-full border font-medium ${person.role==="all"?"bg-[#02B681]/10 text-[#02B681] border-[#02B681]/20":"bg-zinc-100 text-zinc-600 border-zinc-200"}`}>{person.role==="all"?"Ve todos":"Solo su horario"}</span>}
                         </div>
                         {!isViewerOwn && <button onClick={()=>removePerson(person.id)} className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-600 px-1 shrink-0">×</button>}
                       </div>
@@ -302,7 +302,7 @@ export default function Home(){
                       const weekend=isWeekend(iso);
                       return (
                         <td key={iso} onDragOver={e=>e.preventDefault()} onDrop={()=>onDrop(person.id, iso)}
-                          className={`p-2.5 border-r border-zinc-100 last:border-0 text-center align-middle h-[88px] ${weekend?"bg-[#02B681]/[0.03]":""} ${drag?.pid===person.id&&drag?.date===iso?"opacity-40":""}`}>
+                          className={`p-1.5 sm:p-2.5 border-r border-zinc-100 last:border-0 text-center align-middle h-[72px] sm:h-[88px] ${weekend?"bg-[#02B681]/[0.03]":""} ${drag?.pid===person.id&&drag?.date===iso?"opacity-40":""}`}>
                           {editingHere ? (
                             <div className="relative z-10 flex flex-col gap-1.5 bg-white p-2 rounded-xl border-2 border-[#02B681] shadow-lg min-w-[150px]">
                               <div className="flex flex-col gap-1">
@@ -320,15 +320,15 @@ export default function Home(){
                               <button onClick={()=>{updateShift(person.id,iso,null); setEditing(null);}} className="w-full bg-red-50 border border-red-200 rounded-lg text-xs py-2 font-bold text-red-600 hover:bg-red-100">Franco</button>
                             </div>
                           ) : isFranco ? (
-                            <button onClick={()=>openEdit(person.id,iso)} className="w-full h-[68px] rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 text-red-600 text-xs font-bold grid place-items-center">Franco</button>
+                            <button onClick={()=>openEdit(person.id,iso)} className="w-full h-[56px] sm:h-[68px] rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 text-red-600 text-[11px] sm:text-xs font-bold grid place-items-center">Franco</button>
                           ) : shift && (shift.from || shift.to) ? (
                             <div draggable={!isViewerOwn || visiblePeople.length===1} onDragStart={()=>onDragStart(person.id,iso)} onClick={()=>openEdit(person.id,iso)}
-                              className="cursor-grab active:cursor-grabbing select-none bg-[#02B681] text-white rounded-lg px-2 py-3.5 text-[13px] font-semibold shadow-sm hover:bg-[#02996f] flex flex-col items-center leading-tight">
-                              <span>{shift.from || "--:--"}</span><span className="opacity-60 text-[10px]">—</span><span>{shift.to || "--:--"}</span>
+                              className="cursor-grab active:cursor-grabbing select-none bg-[#02B681] text-white rounded-lg px-1 sm:px-2 py-2 sm:py-3.5 text-[11px] sm:text-[13px] font-semibold shadow-sm hover:bg-[#02996f] flex flex-col items-center leading-tight">
+                              <span>{shift.from || "--:--"}</span><span className="opacity-60 text-[9px] sm:text-[10px]">—</span><span>{shift.to || "--:--"}</span>
                             </div>
                           ) : (
                             <button onClick={()=>openEdit(person.id,iso)} draggable={false}
-                              className="w-full h-[68px] rounded-lg border border-dashed border-zinc-200 hover:border-[#02B681]/40 hover:bg-[#02B681]/10 text-zinc-400 hover:text-[#02B681] text-xs grid place-items-center font-medium">
+                              className="w-full h-[56px] sm:h-[68px] rounded-lg border border-dashed border-zinc-200 hover:border-[#02B681]/40 hover:bg-[#02B681]/10 text-zinc-400 hover:text-[#02B681] text-xs grid place-items-center font-medium">
                               +
                             </button>
                           )}

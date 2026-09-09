@@ -48,13 +48,13 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
 
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col">
-      <header className="sticky top-0 z-30 bg-white border-b border-zinc-200 px-4 sm:px-6 py-3 flex items-center gap-3">
-        <img src="/logo-horizontal.png" alt="TuTurnito" className="h-8 w-auto" />
+      <header className="sticky top-0 z-30 bg-white border-b border-zinc-200 px-3 sm:px-6 py-3 flex items-center gap-2 sm:gap-3">
+        <img src="/logo-horizontal.png" alt="TuTurnito" className="h-7 sm:h-8 w-auto" />
         <span className="hidden sm:inline-flex ml-2 text-xs bg-[#02B681]/10 text-[#02B681] px-2 py-1 rounded-full border border-[#02B681]/20"> {members.length} personas · 7 días</span>
-        <span className="ml-auto text-xs bg-zinc-900 text-white px-2.5 py-1 rounded-full">{role === "all" ? "Ve todos" : "Solo tu horario"} · {email}</span>
+        <span className="ml-auto text-[11px] sm:text-xs bg-zinc-900 text-white px-2 sm:px-2.5 py-1 rounded-full truncate max-w-[150px] sm:max-w-none">{role === "all" ? "Ve todos" : "Solo tu horario"} · {email}</span>
       </header>
 
-      <div className="mx-auto w-full max-w-[1600px] px-4 sm:px-6 py-6 flex-1">
+      <div className="mx-auto w-full max-w-[1600px] px-2 sm:px-6 py-4 sm:py-6 flex-1">
         <div className="bg-white border border-zinc-200 rounded-xl p-4 mb-4 flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-[#02B681]/15 text-[#02B681] grid place-items-center font-bold">{name.slice(0,2).toUpperCase()}</div>
           <div>
@@ -67,9 +67,9 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
         {members.length === 0 ? (
           <div className="bg-white border border-zinc-200 rounded-xl p-12 text-center text-sm text-zinc-500">El tablero aún no tiene miembros o no tienes permiso para verlos.</div>
         ) : (
-          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
-            <div className="overflow-auto">
-              <table className="w-full text-[15px] border-collapse min-w-[900px]">
+          <div className="bg-white sm:rounded-xl border-y sm:border border-zinc-200 overflow-hidden shadow-sm -mx-2 sm:mx-0">
+            <div className="overflow-auto overscroll-x-contain touch-pan-x">
+              <table className="w-full text-[13px] sm:text-[15px] border-collapse min-w-[640px] sm:min-w-[900px]">
                 <thead>
                   <tr className="bg-zinc-50 border-b border-zinc-200">
                     <th className="sticky left-0 z-10 bg-zinc-50 text-left p-3.5 font-semibold text-zinc-700 min-w-[220px] border-r border-zinc-200 text-[14px]">Persona</th>
