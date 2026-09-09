@@ -229,6 +229,52 @@ export default function Home(){
   }
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>){
     const f=e.target.files?.[0]; if(!f) return;
+    if(/\.(jpg|jpeg|png|webp)$/i.test(f.name) || f.type.startsWith("image/")){
+      const Tesseract:any = await import("tesseract.js");
+      const {data:{text}} = await Tesseract.recognize(f, "spa");
+      const lines=text.split("\n").map((l:string)=>l.trim()).filter(Boolean);
+      let dateCols:string[]=[];
+      for(const l of lines){
+        const m=l.match(/\d+\/\d+/g);
+        if(m && (l.toUpperCase().includes("FECHA")||l.toUpperCase().includes("LUNES"))) { dateCols=m.slice(0,7); break; }
+      }
+      if(!dateCols.length) dateCols=Array.from({length:7},(_,i)=>`${i+1}/9`);
+      const rows:{excelName:string, shifts:Record<string,Shift>}[]=[];
+      for(const line of lines){
+        if(!line || line.toUpperCase().includes("EMPLEADOS")||line.toUpperCase().includes("COLABORADOR")||line.toUpperCase().includes("FECHA")||line.toUpperCase().includes("HS.")) continue;
+        const parts=line.split(/\s{2,}|\t/).map((p:string)=>p.trim()).filter(Boolean);
+        if(parts.length<2) continue;
+        const name=parts[0].replace(/^\d+\s*/,"").trim();
+        if(name.length<3 || /^\d/.test(name) || ["LUNES","MARTES","COLABORADORES","SEMANAL"].some(k=>name.toUpperCase().includes(k))) continue;
+        const cells=line.split(/\s{2,}/).slice(1);
+        if(cells.length<2){
+          const toks=line.split(/\s+/);
+          if(toks.length<3) continue;
+        }
+        const rawCells=parts.slice(1);
+        const shifts:Record<string,Shift>={};
+        dateCols.slice(0,7).forEach((d,i)=>{
+          const raw=rawCells[i]||"";
+          const parsed=parseCell(raw);
+          if(parsed!==undefined){
+            const iso=(()=>{
+              const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0"));
+              return `${new Date().getFullYear()}-${mon}-${day}`;
+            })();
+            (shifts as any)[iso]=parsed;
+          }
+        });
+        if(Object.keys(shifts).length) rows.push({excelName:name.split(" ").slice(0,3).join(" "), shifts});
+      }
+      if(!rows.length){ alert("No se detectaron empleados en la imagen. Probá con mejor calidad."); e.target.value=""; return; }
+      const merged=new Map<string, any>();
+      for(const r of rows){ const k=r.excelName.toLowerCase(); if(!merged.has(k)) merged.set(k,{excelName:r.excelName, shifts:{}}); Object.assign(merged.get(k)!.shifts, r.shifts); }
+      const final=[...merged.values()].map(r=>{
+        const m=people.find(p=>p.name.toLowerCase()===r.excelName.toLowerCase());
+        return {excelName:r.excelName, shifts:r.shifts, targetId: m?m.id:"new"};
+      });
+      setImportRows(final); setImportDates([...new Set(final.flatMap(r=>Object.keys(r.shifts)))].sort()); setImportOpen(true); e.target.value=""; return;
+    }
     if(f.name.toLowerCase().endsWith(".pdf") || f.type==="application/pdf"){
       const buf=await f.arrayBuffer();
       const tryOcrIfNeeded = async (pdf:any, hasText:boolean) => {
@@ -410,17 +456,18 @@ export default function Home(){
   }
   async function confirmImport(){
     setImportLoading(true);
-    for(const row of importRows){
+    const toImport = importRows.filter(r=>r.targetId!=="skip");
+    for(const row of toImport){
       if(row.targetId==="new"){
         const email = `${row.excelName.toLowerCase().replace(/\s+/g,".")}@import.local`;
-        await apiFetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: row.excelName, email, role:"own", shifts: row.shifts})});
+        await apiFetch("/api/members",{method:"POST", body: JSON.stringify({name: row.excelName, email, role:"own", shifts: row.shifts})});
       } else {
         const person = people.find(p=>p.id===row.targetId);
         if(!person) continue;
         const merged = {...person.shifts, ...row.shifts};
-        await apiFetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: row.targetId, shifts: merged})});
+        await apiFetch("/api/members",{method:"PATCH", body: JSON.stringify({id: row.targetId, shifts: merged})});
       }
-    }
+      }
     setImportLoading(false);
     setImportOpen(false);
     await fetchMembers();
@@ -459,8 +506,8 @@ export default function Home(){
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={downloadTemplate} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-700">Plantilla</button>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf" onChange={handleImport} className="hidden"/>
-            <button onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-zinc-900 text-white border border-zinc-900 hover:bg-zinc-800 font-medium">Importar Excel/PDF</button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png,.webp" onChange={handleImport} className="hidden"/>
+            <button onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-zinc-900 text-white border border-zinc-900 hover:bg-zinc-800 font-medium">Importar Excel/PDF/Imagen</button>
             <button onClick={handleExport} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-[#02B681] text-white hover:bg-[#02996f] font-medium">Exportar</button>
             {userEmail && <span className="hidden lg:inline text-xs text-zinc-500 max-w-[150px] truncate">{userEmail}</span>}
             <button onClick={async()=>{ const s=createClient(); await s.auth.signOut(); router.push("/login"); }} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200">Salir</button>
@@ -728,7 +775,7 @@ export default function Home(){
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
             <div className="px-6 pt-6 pb-3 border-b border-zinc-100">
               <h2 className="text-lg font-bold text-zinc-900">Importar Excel — Asignar horarios</h2>
-              <p className="text-sm text-zinc-500 mt-1">El Excel trae {importRows.length} personas. Elige a quién derivar cada fila.</p>
+              <p className="text-sm text-zinc-500 mt-1">Detectadas {importRows.length} personas. Elige a quién derivar cada fila (o No importar).</p>
               <p className="text-xs text-zinc-400 mt-1">Fechas detectadas: {importDates.join(", ")}</p>
             </div>
             <div className="flex-1 overflow-auto px-6 py-4 space-y-3">
@@ -741,6 +788,7 @@ export default function Home(){
                   </div>
                   <label className="text-xs font-semibold text-zinc-700">Derivar a</label>
                   <select value={row.targetId} onChange={e=> setImportRows(r=> r.map((x,i)=> i===idx?{...x, targetId:e.target.value}:x))} className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white text-zinc-900">
+                    <option value="skip">— No importar —</option>
                     <option value="new">+ Crear nuevo — {row.excelName}</option>
                     {people.map(p=>(
                       <option key={p.id} value={p.id}>{p.name} — {p.email} {p.name.toLowerCase()===row.excelName.toLowerCase()?"(sugerido)":""}</option>
@@ -751,7 +799,7 @@ export default function Home(){
             </div>
             <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex gap-2 justify-end">
               <button onClick={()=>setImportOpen(false)} className="px-4 py-2 rounded-lg border border-zinc-200 bg-white text-sm">Cancelar</button>
-              <button onClick={confirmImport} disabled={importLoading} className="px-5 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 disabled:opacity-50">{importLoading?"Importando...":"Confirmar ("+importRows.length+")"}</button>
+              <button onClick={confirmImport} disabled={importLoading} className="px-5 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 disabled:opacity-50">{importLoading?"Importando...":"Confirmar ("+importRows.filter(r=>r.targetId!=="skip").length+")"}</button>
             </div>
           </div>
         </div>
