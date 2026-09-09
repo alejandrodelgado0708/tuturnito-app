@@ -37,12 +37,33 @@ export async function GET(req: Request){
   if(!member) return NextResponse.json({error:"Persona no encontrada"},{status:404});
   const siteUrl=process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || (process.env.VERCEL_URL?`https://${process.env.VERCEL_URL}`:new URL(req.url).origin);
   let invite:any=null;
-  const {data: existing}=await svc.from("share_invites").select("*").eq("email", member.email.toLowerCase()).eq("owner_id", member.owner_id).maybeSingle();
+  const {data: list}=await svc.from("share_invites").select("*").eq("email", member.email.toLowerCase()).eq("owner_id", member.owner_id).order("created_at",{ascending:false}).limit(1);
+  const existing=list?.[0];
   if(existing){
     invite=existing;
+    if(invite.role!==member.role || (member.can_upload!==undefined && invite.can_upload!==member.can_upload)){
+      const upd:any={role: member.role||"own"};
+      if(member.can_upload!==undefined) upd.can_upload=member.can_upload;
+      let {error:e2}=await svc.from("share_invites").update(upd).eq("id", invite.id);
+      if(e2 && e2.message.includes("can_upload")){
+        delete upd.can_upload;
+        await svc.from("share_invites").update(upd).eq("email", member.email.toLowerCase()).eq("owner_id", member.owner_id);
+      } else if(!e2){
+        await svc.from("share_invites").update(upd).eq("email", member.email.toLowerCase()).eq("owner_id", member.owner_id);
+      }
+      invite.role=member.role;
+      invite.can_upload=member.can_upload;
+    }
   } else {
     const token=crypto.randomUUID();
-    const {data: ins, error}=await svc.from("share_invites").insert({token, email:member.email.toLowerCase(), name:member.name, role:member.role||"own", owner_id: member.owner_id}).select().single();
+    const payload:any={token, email:member.email.toLowerCase(), name:member.name, role:member.role||"own", owner_id: member.owner_id};
+    if(member.can_upload!==undefined) payload.can_upload=member.can_upload;
+    let {data: ins, error}=await svc.from("share_invites").insert(payload).select().single();
+    if(error && error.message.includes("can_upload")){
+      delete payload.can_upload;
+      const r2=await svc.from("share_invites").insert(payload).select().single();
+      ins=r2.data; error=r2.error;
+    }
     if(error) return NextResponse.json({error:error.message},{status:400});
     invite=ins;
   }
