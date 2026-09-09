@@ -275,15 +275,18 @@ export default function Home(){
           rowsMap.get(y)!.push(w);
         }
         const sortedRows=[...rowsMap.entries()].sort((a,b)=>b[0]-a[0]).map(([_,v])=>v.sort((a,b)=>a.bbox.x0-b.bbox.x0));
-        let headerIdx=-1, headerXs:number[]=[];
+        const tables:{headerIdx:number, headerXs:number[]}[]=[];
         for(let i=0;i<sortedRows.length;i++){
           const line=sortedRows[i].map((w:any)=>w.text).join(" ").toUpperCase();
           if(line.includes("COLABORADOR")||line.includes("EMPLEADOS")){
-            headerIdx=i; headerXs=sortedRows[i].map((w:any)=>w.bbox.x0); break;
+            tables.push({headerIdx:i, headerXs:sortedRows[i].map((w:any)=>w.bbox.x0)});
           }
         }
-        if(headerIdx!==-1){
+        for(const tbl of tables){
+          const {headerIdx, headerXs}=tbl;
           for(let r=headerIdx+1;r<sortedRows.length;r++){
+            const peek=sortedRows[r].map((w:any)=>w.text).join(" ").toUpperCase();
+            if(tables.some(t=>t.headerIdx===r)) break;
             const line=sortedRows[r].map((w:any)=>w.text).join(" ").trim();
             if(!line || line.toUpperCase().includes("CANTIDAD")||line.toUpperCase().includes("HS SEMAN")) break;
             const first=sortedRows[r][0]?.text?.trim();
