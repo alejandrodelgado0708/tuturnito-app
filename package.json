@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:import": "tsc src/lib/schedule-import.ts src/lib/schedule-import.test.ts --outDir .tmp-schedule-tests --module commonjs --target es2020 --esModuleInterop --skipLibCheck && node --test .tmp-schedule-tests/schedule-import.test.js"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

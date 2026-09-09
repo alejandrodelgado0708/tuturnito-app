@@ -1,5 +1,26 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Importación de horarios
+
+El importador admite Excel, PDF e imágenes con tablas como esta:
+
+| Septiembre 2026 | | |
+| --- | --- | --- |
+| Fecha | 7 | 8 |
+| Colaborador | Lunes | Martes |
+| María del Carmen Pérez | 8 a 12 / 16 a 20 | Franco |
+| Fecha | 14 | 15 |
+| Colaborador | Lunes | Martes |
+| María del Carmen Pérez | 09:30-18:00 | Libre |
+
+Los bloques pueden repetirse verticalmente o estar lado a lado. Los nombres completos se agrupan ignorando mayúsculas, tildes y espacios repetidos. Las celdas vacías conservan su posición. También se admite la plantilla con `Nombre` y fechas ISO (`YYYY-MM-DD`), y se leen todas las hojas de Excel y páginas de PDF.
+
+El mes debe aparecer en el documento, en el título de la hoja o en las fechas. Si falta el año se usa el del calendario abierto y se muestra un aviso. Las discrepancias con los días de la semana y los horarios ilegibles aparecen en la vista previa. Los horarios contradictorios para la misma persona y fecha impiden la importación. Revisá los turnos detectados y la asignación de personas antes de confirmar.
+
+La lectura de imágenes depende de su resolución y alineación. El OCR descarga el modelo de español y el lector PDF carga su worker; se necesita conexión en la primera carga. Las pruebas automatizadas verifican la interpretación de tablas con coordenadas, no la precisión del OCR sobre fotografías reales.
+
+Pruebas del importador: `npm run test:import`. Comprobación de tipos: `npx tsc --noEmit`.
+
 ## Getting Started
 
 First, run the development server:

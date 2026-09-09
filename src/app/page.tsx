@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
+import { nameKey } from "@/lib/schedule-import";
+import { readSchedule } from "@/lib/read-schedule";
 
 type Single = { from: string; to: string };
 type Shift = Single | Single[] | null;
@@ -50,6 +52,8 @@ export default function Home(){
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const [importReading, setImportReading] = useState(false);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [importRows, setImportRows] = useState<{excelName:string, shifts:Record<string,Shift>, targetId:string}[]>([]);
   const [importDates, setImportDates] = useState<string[]>([]);
@@ -196,357 +200,29 @@ export default function Home(){
     setDrag(null);
   }
 
-  function normTime(t:string){
-    let s=t.trim().replace(/[ʵ’ʼʽʻ′´`]/g,":").replace(/\s+/g," ").toLowerCase();
-    s=s.replace(/\s*a\s*/g,"-").replace(/\s*\/\/\s*/g,"/").replace(/\s*\/\s*/g,"/");
-    return s;
-  }
-  function parseCell(raw:string): Shift | null | undefined {
-    const r=raw.trim();
-    if(!r || r==="—" || r==="-") return undefined;
-    const up=r.toUpperCase();
-    if(up==="FRANCO") return null;
-    if(up==="BANFIELD"||up==="PLANTA"||up==="ALSINA"||up==="ALTO AVELLANEDA"||up==="CAPAC."||up==="CAPACITACION"||up==="AUSENTE"||up==="ENF"||up==="SUSPENDIDO"||up==="FULL"||up==="DIA"||up==="DEL"||up==="COMERCIO"||up==="EMPLEADO") return {from:r, to:""} as any;
-    const n=normTime(r);
-    if(n.includes("/")){
-      const parts=n.split("/").map(p=>p.trim()).filter(Boolean);
-      const arr=parts.map(p=>{
-        const [a,b]=p.split("-").map(x=>x.trim());
-        const fa=a.includes(":")?a:(a?`${a.padStart(2,"0")}:00`:"");
-        const fb=b?.includes(":")?b:(b?`${b.padStart(2,"0")}:00`:"");
-        return {from:fa, to:fb};
-      }).filter(x=>x.from||x.to);
-      if(!arr.length) return undefined;
-      return arr.length===1?arr[0]:arr;
-    }
-    if(n.includes("-")){
-      const [a,b]=n.split("-").map(x=>x.trim());
-      const fa=a.includes(":")?a:(a?`${a.padStart(2,"0")}:00`:"");
-      const fb=b?.includes(":")?b:(b?`${b.padStart(2,"0")}:00`:"");
-      if(!fa&&!fb) return undefined;
-      return {from:fa, to:fb};
-    }
-    return {from:r, to:""} as any;
-  }
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>){
-    const f=e.target.files?.[0]; if(!f) return;
-    if(/\.(jpg|jpeg|png|webp)$/i.test(f.name) || f.type.startsWith("image/")){
-      const preprocess = async (file:File): Promise<HTMLCanvasElement> => {
-        const url=URL.createObjectURL(file);
-        const img=await new Promise<HTMLImageElement>((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
-        const canvas=document.createElement("canvas");
-        const scale=Math.min(2.5, 1600/img.width);
-        canvas.width=img.width*scale; canvas.height=img.height*scale;
-        const ctx=canvas.getContext("2d")!;
-        ctx.drawImage(img,0,0,canvas.width,canvas.height);
-        const imgData=ctx.getImageData(0,0,canvas.width,canvas.height);
-        const d=imgData.data;
-        for(let i=0;i<d.length;i+=4){
-          const g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-          const v=Math.min(255, Math.max(0, (g-128)*1.3+128));
-          d[i]=d[i+1]=d[i+2]=v;
-        }
-        ctx.putImageData(imgData,0,0);
-        URL.revokeObjectURL(url);
-        return canvas;
-      };
-      const tryOcr = async (cvs:HTMLCanvasElement, psm:number=6) => {
-        const Tesseract:any = await import("tesseract.js");
-        const {data} = await Tesseract.recognize(cvs, "spa", { logger:()=>{}, tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" } as any);
-        return data;
-      };
-      let canvas=await preprocess(f);
-      let data=(await tryOcr(canvas, 6)) as any;
-      let text: string = data.text || "";
-      let words: any[] = data.words || [];
-      if(text.toUpperCase().replace(/[^A-Z]/g,"").includes("COLABORADOR".replace(/A/g,""))===false && !text.toUpperCase().includes("COLABOR")){
-        const canvas2=await preprocess(f);
-        const ctx2=canvas2.getContext("2d")!;
-        ctx2.filter="contrast(1.6) brightness(1.1)";
-        ctx2.drawImage(canvas,0,0);
-        const d2=(await tryOcr(canvas2, 11)) as any;
-        if((d2.text||"").length>text.length) { text=d2.text; words=d2.words; }
-      }
-      let dateCols:string[]=[];
-      const lines=text.split("\n").map((l:string)=>l.trim()).filter(Boolean);
-      for(const l of lines){
-        const m=l.match(/\b\d{1,2}\b/g);
-        if(m && m.length>=7 && (l.toUpperCase().includes("FECHA")||l.toUpperCase().includes("LUNES")||l.toUpperCase().includes("7"))) {
-          const nums=m.filter((n:string)=>parseInt(n)>=1&&parseInt(n)<=31).slice(0,7);
-          if(nums.length>=5) { dateCols=nums.map((n:string)=>n+"/9"); break; }
-        }
-      }
-      const fe=(l:string)=>l.match(/\d+\/\d+/g);
-      for(const l of lines){ const m=fe(l); if(m && m.length>=5){ dateCols=m.slice(0,7); break; } }
-      if(!dateCols.length) dateCols=["7/9","8/9","9/9","10/9","11/9","12/9","13/9"];
-      let rows:{excelName:string, shifts:Record<string,Shift>}[]=[];
-      if(words.length>20){
-        const rowsMap=new Map<number, any[]>();
-        for(const w of words){
-          const y=Math.round(w.bbox.y0/12)*12;
-          if(!rowsMap.has(y)) rowsMap.set(y,[]);
-          rowsMap.get(y)!.push(w);
-        }
-        const sortedRows=[...rowsMap.entries()].sort((a,b)=>b[0]-a[0]).map(([_,v])=>v.sort((a,b)=>a.bbox.x0-b.bbox.x0));
-        const tables:{headerIdx:number, headerXs:number[]}[]=[];
-        for(let i=0;i<sortedRows.length;i++){
-          const line=sortedRows[i].map((w:any)=>w.text).join(" ").toUpperCase();
-          if(line.includes("COLABOR")||line.includes("EMPLEA")||line.includes("NOMBRE")){
-            tables.push({headerIdx:i, headerXs:sortedRows[i].map((w:any)=>w.bbox.x0)});
-          }
-        }
-        for(const tbl of tables){
-          const {headerIdx, headerXs}=tbl;
-          for(let r=headerIdx+1;r<sortedRows.length;r++){
-            const peek=sortedRows[r].map((w:any)=>w.text).join(" ").toUpperCase();
-            if(tables.some(t=>t.headerIdx===r)) break;
-            const line=sortedRows[r].map((w:any)=>w.text).join(" ").trim();
-            if(!line || line.toUpperCase().includes("CANTIDAD")||line.toUpperCase().includes("HS SEMAN")) break;
-            const first=sortedRows[r][0]?.text?.trim();
-            if(!first || first.length<2) continue;
-            if(["LUNES","MARTES","FECHA","CANTIDAD"].some(k=>line.toUpperCase().startsWith(k))) continue;
-            const name=sortedRows[r].slice(0,2).map((w:any)=>w.text).join(" ").trim();
-            if(name.length<3 || /^\d/.test(name)) continue;
-            if(name.toUpperCase().includes("COLABORADOR")||name.toUpperCase().includes("SEPTIEMBRE")) continue;
-            const cells:string[]=[];
-            for(let ci=1; ci<headerXs.length && ci<=7; ci++){
-              const hx=headerXs[ci];
-              const cand=sortedRows[r].filter((w:any)=>Math.abs(w.bbox.x0-hx)<90).map((w:any)=>w.text).join(" ").trim();
-              cells.push(cand);
-            }
-            if(cells.every(c=>!c)) continue;
-            const shifts:Record<string,Shift>={};
-            dateCols.slice(0,7).forEach((d,i)=>{
-              const raw=cells[i]||"";
-              const parsed=parseCell(raw);
-              if(parsed!==undefined){
-                const iso=(()=>{ const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0")); return `${new Date().getFullYear()}-${mon}-${day}`; })();
-                (shifts as any)[iso]=parsed;
-              }
-            });
-            if(Object.keys(shifts).length) rows.push({excelName:name.split(" ").slice(0,2).join(" "), shifts});
-          }
-        }
-      }
-      if(!rows.length){
-        for(const line of lines){
-          if(!line || line.toUpperCase().includes("COLABORADOR")||line.toUpperCase().includes("FECHA")||line.toUpperCase().includes("CANTIDAD")||line.toUpperCase().includes("HS SEMAN")) continue;
-          const m=line.match(/([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,2})/);
-          if(!m) continue;
-          const name=m[1].trim();
-          if(name.length<5) continue;
-          const rest=line.slice(line.indexOf(name)+name.length).trim();
-          const tokens=rest.split(/\s{2,}|\t/).filter(Boolean);
-          let cells:string[]=[];
-          if(tokens.length>=7) cells=tokens.slice(0,7);
-          else {
-            const found=(rest.match(/Franco|REUNION|\d{1,2}\s*a\s*\d{1,2}/gi) || []).slice(0,7);
-            cells=found;
-            while(cells.length<7) cells.push("");
-          }
-          const shifts:Record<string,Shift>={};
-          dateCols.slice(0,7).forEach((d,i)=>{
-            const raw=cells[i]||"";
-            const parsed=parseCell(raw);
-            if(parsed!==undefined){
-              const iso=(()=>{ const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0")); return `${new Date().getFullYear()}-${mon}-${day}`; })();
-              (shifts as any)[iso]=parsed;
-            }
-          });
-          if(Object.keys(shifts).length) rows.push({excelName:name, shifts});
-        }
-      }
-      if(!rows.length){
-        const t=text.slice(0,800);
-        setImportErrorMsg("No se detectaron empleados. Texto OCR:\n"+t.slice(0,400)+"\n\nProbá recortando solo la tabla o con mejor luz.");
-        e.target.value=""; return;
-      }
-      const merged=new Map<string, any>();
-      for(const r of rows){ const k=r.excelName.toLowerCase(); if(!merged.has(k)) merged.set(k,{excelName:r.excelName, shifts:{}}); Object.assign(merged.get(k)!.shifts, r.shifts); }
-      const final=[...merged.values()].map(r=>{
-        const m=people.find(p=>p.name.toLowerCase()===r.excelName.toLowerCase());
-        return {excelName:r.excelName, shifts:r.shifts, targetId: m?m.id:"new"};
-      });
-      setImportRows(final); setImportDates([...new Set(final.flatMap(r=>Object.keys(r.shifts)))].sort()); setImportOpen(true); e.target.value=""; return;
-    }
-    if(f.name.toLowerCase().endsWith(".pdf") || f.type==="application/pdf"){
-      const buf=await f.arrayBuffer();
-      const tryOcrIfNeeded = async (pdf:any, hasText:boolean) => {
-        if(hasText) return null;
-        try{
-          const Tesseract:any = await import("tesseract.js");
-          let fullText="";
-          for(let p=1;p<=Math.min(pdf.numPages,3);p++){
-            const page=await pdf.getPage(p);
-            const viewport=page.getViewport({scale:2});
-            const canvas=document.createElement("canvas");
-            canvas.width=viewport.width; canvas.height=viewport.height;
-            const ctx=canvas.getContext("2d")!;
-            await page.render({canvasContext:ctx, viewport}).promise;
-            const {data:{text}} = await Tesseract.recognize(canvas, "spa", { logger:()=>{} });
-            fullText+= "\n"+text;
-          }
-          return fullText;
-        }catch{ return null; }
-      };
-      const pdfjs:any = await import("pdfjs-dist");
-      if(pdfjs.GlobalWorkerOptions) try{ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`; }catch{}
-      const pdf=await pdfjs.getDocument({data: buf}).promise;
-      let allRows:{excelName:string, shifts:Record<string,Shift>}[]=[];
-      let allDates:string[]=[];
-      let isImagePdf=false;
-      for(let p=1;p<=Math.min(pdf.numPages, 5);p++){
-        const page=await pdf.getPage(p);
-        const txt=await page.getTextContent();
-        const items=(txt.items as any[]).map((it:any)=>({str:it.str, x:it.transform[4], y:it.transform[5]})).filter((it:any)=>it.str.trim());
-        if(items.length<15){
-          isImagePdf=true;
-          const ocrText=await tryOcrIfNeeded(pdf, false);
-          if(ocrText){
-            const lines=ocrText.split("\n").map((l:string)=>l.trim()).filter(Boolean);
-            let dateCols:string[]=[];
-            for(const l of lines){
-              if(l.toUpperCase().includes("EMPLEADOS")||l.toUpperCase().includes("COLABORADOR")){
-                const m=l.match(/\d+\/\d+/g);
-                if(m) dateCols=m;
-                break;
-              }
-            }
-            if(!dateCols.length) dateCols=Array.from({length:7},(_,i)=>`${i+1}/9`);
-            for(const line of lines){
-              if(!line || line.toUpperCase().includes("EMPLEADOS")||line.toUpperCase().includes("FECHA")) continue;
-              const parts=line.split(/\s{2,}|\t/);
-              if(parts.length<2) continue;
-              const name=parts[0].trim();
-              if(name.length<3 || /^\d/.test(name) || ["LUNES","MARTES","COLABORADORES"].some(k=>name.toUpperCase().includes(k))) continue;
-              const cells=parts.slice(1);
-              const shifts:Record<string,Shift>={};
-              dateCols.slice(0,7).forEach((d,i)=>{
-                const raw=cells[i]||"";
-                const parsed=parseCell(raw);
-                if(parsed!==undefined){
-                  const iso=(()=>{
-                    const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0"));
-                    const year=new Date().getFullYear();
-                    return `${year}-${mon}-${day}`;
-                  })();
-                  (shifts as any)[iso]=parsed;
-                }
-              });
-              if(Object.keys(shifts).length) allRows.push({excelName:name.split(" ").slice(0,2).join(" "), shifts});
-            }
-            break;
-          }
-        }
-        const rowsMap=new Map<number, any[]>();
-        for(const it of items){
-          const y=Math.round(it.y/5)*5;
-          if(!rowsMap.has(y)) rowsMap.set(y, []);
-          rowsMap.get(y)!.push(it);
-        }
-        const rows=[...rowsMap.entries()].sort((a,b)=>b[0]-a[0]).map(([_, v])=> v.sort((a,b)=>a.x-b.x));
-        let headerIdx=-1, dateCols: string[]=[];
-        for(let i=0;i<rows.length;i++){
-          const line=rows[i].map((c:any)=>c.str).join(" ").toUpperCase();
-          if(line.includes("EMPLEADOS")||line.includes("COLABORADOR")||line.includes("NOMBRE")){
-            headerIdx=i;
-            const next=rows[i+1]?.map((c:any)=>c.str).join(" ")||"";
-            const fechaMatch=next.match(/\d+\/\d+/g);
-            if(fechaMatch){
-              dateCols=fechaMatch;
-              allDates=[...new Set([...allDates, ...fechaMatch])];
-            } else {
-              const nums=rows[i].map((c:any)=>c.str).join(" ").match(/\b\d{1,2}\b/g) || [];
-              dateCols=nums.filter((n:string)=>parseInt(n)>=1&&parseInt(n)<=31).slice(0,7);
-            }
-            break;
-          }
-        }
-        if(headerIdx===-1 || !dateCols.length) continue;
-        const headerRow=rows[headerIdx];
-        const headerXs=headerRow.map((c:any)=>c.x);
-        for(let r=headerIdx+2;r<rows.length;r++){
-          const line=rows[r].map((c:any)=>c.str).join(" ").trim();
-          if(!line || line.toUpperCase().includes("EMPLEADOS")||line.toUpperCase().includes("COLABORADOR")||line.toUpperCase().includes("HS.")||line.toUpperCase().includes("SEMANAL")||line.toUpperCase().includes("COLABORADOR")) break;
-          const first=rows[r][0]?.str?.trim();
-          if(!first || first.length<2) continue;
-          if(["LUNES","MARTES","MIERCOLES","JUEVES","VIERNES","SABADO","DOMINGO","FECHA","CONTEO","TM:"].some(k=>line.toUpperCase().startsWith(k))) continue;
-          const name=rows[r].slice(0,2).map((c:any)=>c.str).join(" ").split(/\s{2,}/)[0].trim();
-          if(name.length<2 || /^\d/.test(name)) continue;
-          const cells: string[]=[];
-          for(let ci=1; ci<headerXs.length && ci<=7; ci++){
-            const hx=headerXs[ci];
-            const cand=rows[r].filter((c:any)=>Math.abs(c.x-hx)<60).map((c:any)=>c.str).join(" ").trim();
-            cells.push(cand);
-          }
-          while(cells.length<dateCols.length) cells.push("");
-          const shifts:Record<string,Shift>={};
-          dateCols.forEach((d,i)=>{
-            const raw=cells[i]||"";
-            const parsed=parseCell(raw);
-            if(parsed!==undefined) {
-              const iso=d.includes("/")?(()=>{
-                const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0"));
-                const year=new Date().getFullYear();
-                return `${year}-${mon}-${day}`;
-              })():`2025-09-${d.padStart(2,"0")}`;
-              (shifts as any)[iso]=parsed;
-            }
-          });
-          if(Object.keys(shifts).length) allRows.push({excelName:name.split(" ").slice(0,2).join(" "), shifts});
-        }
-      }
-      if(!allRows.length){ setImportErrorMsg("No se detectaron tablas en el PDF. Probá con el Excel original o recortá la imagen."); e.target.value=""; return; }
-      const merged=new Map<string, {excelName:string, shifts:Record<string,Shift>}>();
-      for(const r of allRows){
-        const key=r.excelName.toLowerCase();
-        if(!merged.has(key)) merged.set(key, {excelName:r.excelName, shifts:{}});
-        Object.assign(merged.get(key)!.shifts, r.shifts);
-      }
-      const rows=[...merged.values()].map(r=>{
-        const match=people.find(p=>p.name.toLowerCase()===r.excelName.toLowerCase());
-        return {excelName:r.excelName, shifts:r.shifts, targetId: match?match.id:"new"};
-      });
-      setImportRows(rows);
-      const uniq=[...new Set(rows.flatMap(r=>Object.keys(r.shifts)))].sort();
-      setImportDates(uniq);
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    setImportReading(true);
+    setImportErrorMsg(null);
+    setImportWarnings([]);
+    try {
+      const result = await readSchedule(file, Number(start.slice(0, 4)));
+      if (!result.rows.length) throw new Error("No se detectaron horarios con fechas válidas. Verificá que se vean el mes, Fecha, Colaborador y los horarios. " + result.warnings.join(" "));
+      setImportRows(result.rows.map(row => {
+        const matches = people.filter(person => nameKey(person.name) === nameKey(row.excelName) || nameKey(person.email ?? "") === nameKey(row.excelName));
+        return { ...row, targetId: matches.length === 1 ? matches[0].id : "new" };
+      }));
+      setImportDates(result.dates);
+      setImportWarnings(result.warnings);
       setImportOpen(true);
-      e.target.value="";
-      return;
+    } catch (error) {
+      setImportErrorMsg(error instanceof Error ? error.message : "No se pudo leer el documento.");
+    } finally {
+      setImportReading(false);
+      input.value = "";
     }
-    const reader=new FileReader();
-    reader.onload = (ev)=>{
-      const data=ev.target?.result;
-      const wb=XLSX.read(data,{type:"array"});
-      const ws=wb.Sheets[wb.SheetNames[0]];
-      const json=XLSX.utils.sheet_to_json<(string|number)[]>(ws,{header:1, defval:""});
-      if(json.length<2) return;
-      const header=json[0] as string[];
-      const dateCols=header.slice(1);
-      const parsedDates=dateCols.map(h=>{
-        const s=String(h).trim();
-        if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-        const d=new Date(s);
-        if(!isNaN(d.getTime())) return toISO(d);
-        return s;
-      });
-      const rows = (json.slice(1) as string[][]).filter(r=> String(r[0]).trim()).map(r=>{
-        const shifts:Record<string,Shift>={};
-        dateCols.forEach((_,i)=>{
-          const raw=String(r[i+1]??"").trim();
-          const p=parseCell(raw);
-          if(p!==undefined) (shifts as any)[parsedDates[i]]=p;
-        });
-        const excelName=String(r[0]).trim();
-        const match = people.find(p=>p.name.toLowerCase()===excelName.toLowerCase() || p.email?.toLowerCase()===excelName.toLowerCase());
-        return {excelName, shifts, targetId: match ? match.id : "new"};
-      });
-      setImportRows(rows);
-      setImportDates(parsedDates);
-      setImportOpen(true);
-    };
-    reader.readAsArrayBuffer(f);
-    e.target.value="";
   }
   async function confirmImport(){
     setImportLoading(true);
@@ -566,7 +242,11 @@ export default function Home(){
     setImportOpen(false);
     await fetchMembers();
     const firstValid=importDates.find(d=>/^\d{4}-\d{2}-\d{2}$/.test(d));
-    if(firstValid){ setStart(firstValid); setDays(importDates.length); }
+    if(firstValid){
+      const lastValid = importDates.filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).at(-1)!;
+      setStart(firstValid);
+      setDays(Math.round((Date.parse(lastValid) - Date.parse(firstValid)) / 86400000) + 1);
+    }
   }
 
   function handleExport(){
@@ -601,7 +281,7 @@ export default function Home(){
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={downloadTemplate} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-700">Plantilla</button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png,.webp" onChange={handleImport} className="hidden"/>
-            <button onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-zinc-900 text-white border border-zinc-900 hover:bg-zinc-800 font-medium">Importar Excel/PDF/Imagen</button>
+            <button disabled={importReading} onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-zinc-900 text-white border border-zinc-900 hover:bg-zinc-800 font-medium">{importReading ? "Leyendo documento..." : "Importar Excel/PDF/Imagen"}</button>
             <button onClick={handleExport} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-[#02B681] text-white hover:bg-[#02996f] font-medium">Exportar</button>
             {userEmail && <span className="hidden lg:inline text-xs text-zinc-500 max-w-[150px] truncate">{userEmail}</span>}
             <button onClick={async()=>{ const s=createClient(); await s.auth.signOut(); router.push("/login"); }} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200">Salir</button>
@@ -792,7 +472,7 @@ export default function Home(){
         )}
 
         <div className="mt-4 grid sm:grid-cols-3 gap-3 text-xs text-zinc-600">
-          <div className="bg-white border border-zinc-200 rounded-lg p-3"><b>Importar:</b> Excel con columna A = Nombre, columnas siguientes = fechas (YYYY-MM-DD) y celdas con &quot;08:00-16:00&quot; o &quot;LIBRE&quot;.</div>
+          <div className="bg-white border border-zinc-200 rounded-lg p-3"><b>Importar:</b> Excel, PDF o imagen con mes, fechas y colaboradores. Admite bloques repetidos y turnos como &quot;08:00-16:00&quot;, &quot;8 a 12 / 16 a 20&quot; o &quot;FRANCO&quot;.</div>
           <div className="bg-white border border-zinc-200 rounded-lg p-3"><b>Manual:</b> Invita por email y elige si ve solo su horario o todos.</div>
           <div className="bg-white border border-zinc-200 rounded-lg p-3"><b>Drag & drop:</b> Arrastra el bloque verde a otro día/persona para reasignar.</div>
         </div>
@@ -869,6 +549,8 @@ export default function Home(){
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
             <div className="px-6 pt-6 pb-3 border-b border-zinc-100">
               <h2 className="text-lg font-bold text-zinc-900">Importar — Asignar horarios</h2>
+              <p className="text-sm text-zinc-600 mt-2">Revisá las fechas y los horarios antes de confirmar.</p>
+              {importWarnings.length > 0 && <ul className="mt-2 max-h-32 overflow-auto text-sm text-amber-800 list-disc pl-5" role="status">{importWarnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
               <p className="text-sm text-zinc-500 mt-1">Detectadas {importRows.length} personas. Elige a quién derivar cada fila (o No importar).</p>
               <p className="text-xs text-zinc-400 mt-1">Fechas detectadas: {importDates.join(", ")}</p>
             </div>
@@ -888,6 +570,17 @@ export default function Home(){
                       <option key={p.id} value={p.id}>{p.name} — {p.email} {p.name.toLowerCase()===row.excelName.toLowerCase()?"(sugerido)":""}</option>
                     ))}
                   </select>
+                  <details className="mt-3 text-xs text-zinc-700">
+                    <summary className="cursor-pointer font-semibold">Ver todos los horarios detectados</summary>
+                    <dl className="mt-2 grid grid-cols-2 gap-2">
+                      {Object.entries(row.shifts).sort(([a], [b])=>a.localeCompare(b)).map(([date, shift])=>(
+                        <div key={date} className="rounded border border-zinc-200 bg-white p-2">
+                          <dt className="font-semibold">{date}</dt>
+                          <dd>{shift === null ? "Franco" : (Array.isArray(shift) ? shift : [shift]).map(s=>s.to ? `${s.from}–${s.to}` : s.from).join(" / ")}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
                 </div>
               ))}
             </div>
