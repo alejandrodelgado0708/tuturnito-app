@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 export async function POST(req: Request) {
-  const { email, name, role } = await req.json().catch(() => ({}));
+  const { email, name, role, can_upload } = await req.json().catch(() => ({}));
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return NextResponse.json({ error: "Email inválido" }, { status: 400 });
 
@@ -41,12 +41,12 @@ export async function POST(req: Request) {
   } catch {}
 
   try {
-    await supabase.from("share_invites").insert({ token, email: email.toLowerCase(), name, role: role || "own", owner_id: ownerId });
+    await supabase.from("share_invites").insert({ token, email: email.toLowerCase(), name, role: role || "own", can_upload: can_upload ?? true, owner_id: ownerId });
   } catch {}
 
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${siteUrl}/auth/callback`,
-    data: { name, role: role || "own", share_token: token, share_link: inviteLink },
+    data: { name, role: role || "own", can_upload: can_upload ?? true, share_token: token, share_link: inviteLink },
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

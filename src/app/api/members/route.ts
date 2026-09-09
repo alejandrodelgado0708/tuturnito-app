@@ -53,10 +53,10 @@ export async function POST(req: Request) {
   const user = await getUser(req);
   if (!user) return NextResponse.json({ error: "No auth" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
-  const { name, email, role, shifts } = body;
+  const { name, email, role, shifts, can_upload } = body;
   if (!name || !email) return NextResponse.json({ error: "Falta nombre/email" }, { status: 400 });
   const svc = service();
-  const { data, error } = await svc.from("team_members").insert({ owner_id: user.id, name: name.trim(), email: email.toLowerCase().trim(), role: role || "own", shifts: shifts || {} }).select().single();
+  const { data, error } = await svc.from("team_members").insert({ owner_id: user.id, name: name.trim(), email: email.toLowerCase().trim(), role: role || "own", shifts: shifts || {}, can_upload: can_upload ?? true }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
 }
@@ -65,12 +65,14 @@ export async function PATCH(req: Request) {
   const user = await getUser(req);
   if (!user) return NextResponse.json({ error: "No auth" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
-  const { id, name, shifts } = body;
+  const { id, name, shifts, role, can_upload } = body;
   if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
   const svc = service();
   const updates: any = {};
   if (name !== undefined) updates.name = name;
   if (shifts !== undefined) updates.shifts = shifts;
+  if (role !== undefined) updates.role = role;
+  if (can_upload !== undefined) updates.can_upload = can_upload;
   const { data, error } = await svc.from("team_members").update(updates).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);

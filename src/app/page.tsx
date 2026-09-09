@@ -9,9 +9,10 @@ import { SECTORS, type Sector } from "@/lib/shift-sectors";
 import { readSchedule } from "@/lib/read-schedule";
 
 type Single = { from: string; to: string; sector?: Sector };
+type Perms = { view: Role; canUpload: boolean };
 type Shift = Single | Single[] | null;
 type Role = "own" | "all";
-type Person = { id: string; name: string; email?: string; role?: Role; shifts: Record<string, Shift>; owner_id?: string };
+type Person = { id: string; name: string; email?: string; role?: Role; can_upload?: boolean; shifts: Record<string, Shift>; owner_id?: string };
 function normalize(s: Shift | undefined): Single[] | null | undefined {
   if (s === undefined) return undefined;
   if (s === null) return null;
@@ -65,11 +66,15 @@ export default function Home(){
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("own");
+  const [inviteCanUpload, setInviteCanUpload] = useState(true);
   const [inviteError, setInviteError] = useState("");
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [permEdit, setPermEdit] = useState<Person | null>(null);
+  const [permRole, setPermRole] = useState<Role>("own");
+  const [permCanUpload, setPermCanUpload] = useState(true);
 
   const [importReading, setImportReading] = useState(false);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
@@ -95,6 +100,16 @@ export default function Home(){
     if(!userEmail) return false;
     const me = people.find(p=>p.email?.toLowerCase()===userEmail.toLowerCase());
     return me?.role==="own";
+  },[people,userEmail]);
+  const canUpload = useMemo(()=>{
+    if(!userEmail) return true;
+    const me = people.find(p=>p.email?.toLowerCase()===userEmail.toLowerCase());
+    if(!me) return true;
+    return me.can_upload ?? true;
+  },[people,userEmail]);
+  const isOwner = useMemo(()=>{
+    if(!userEmail) return false;
+    return !people.some(p=>p.email?.toLowerCase()===userEmail.toLowerCase());
   },[people,userEmail]);
 
   async function authHeader(): Promise<Record<string,string>>{
@@ -179,10 +194,10 @@ export default function Home(){
     if(people.some(p=>p.email?.toLowerCase()===e)) return setInviteError("Ese email ya está invitado");
     setInviteSending(true);
     try{
-      const res = await apiFetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:n, email:e, role:inviteRole})});
+      const res = await apiFetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:n, email:e, role:inviteRole, can_upload: inviteCanUpload})});
       const j = await res.json().catch(()=>({}));
       if(!res.ok) throw new Error(j.error || "No se pudo crear");
-      const inv = await apiFetch("/api/invite",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({email:e, name:n, role:inviteRole})});
+      const inv = await apiFetch("/api/invite",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({email:e, name:n, role:inviteRole, can_upload: inviteCanUpload})});
       const ij = await inv.json().catch(()=>({}));
       if(!inv.ok) console.warn(ij.error);
       await fetchMembers();
@@ -325,7 +340,7 @@ export default function Home(){
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={downloadTemplate} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-700">Plantilla</button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png,.webp" onChange={handleImport} className="hidden"/>
-            <button disabled={importReading} onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 font-medium">{importReading ? "Leyendo documento..." : "Importar Excel/PDF/Imagen"}</button>
+            <button disabled={importReading || !canUpload} title={!canUpload?"No tenés permiso para subir horarios":""} onClick={()=>fileRef.current?.click()} className={`text-xs sm:text-sm px-4 py-2 rounded-lg border font-medium ${!canUpload?"bg-zinc-100 text-zinc-400 border-zinc-200 cursor-not-allowed":"bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>{importReading ? "Leyendo documento..." : "Importar Excel/PDF/Imagen"}</button>
             <button onClick={handleExport} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-[#02B681] text-white hover:bg-[#02996f] font-medium">Exportar</button>
             {userEmail && <span className="hidden lg:inline text-xs text-zinc-500 max-w-[150px] truncate">{userEmail}</span>}
             <button onClick={async()=>{ const s=createClient(); await s.auth.signOut(); router.push("/login"); }} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200">Salir</button>
@@ -355,7 +370,7 @@ export default function Home(){
         </div>
 
         <div className="flex gap-2 items-end ml-auto">
-          <button onClick={()=>setInviteOpen(true)} className="px-5 py-2.5 rounded-lg bg-[#02B681] text-white text-sm font-semibold hover:bg-[#02996f] shadow-sm">+ Agregar persona</button>
+          {isOwner && <button onClick={()=>setInviteOpen(true)} className="px-5 py-2.5 rounded-lg bg-[#02B681] text-white text-sm font-semibold hover:bg-[#02996f] shadow-sm">+ Agregar persona</button>}
         </div>
       </div>
 
@@ -391,9 +406,13 @@ export default function Home(){
                         <div className="flex-1 min-w-0">
                           <input defaultValue={person.name} onBlur={e=>renamePerson(person.id,e.target.value)} className="font-medium text-[12px] sm:text-[14px] text-zinc-800 bg-transparent border border-transparent hover:border-zinc-200 focus:border-[#02B681]/40 focus:outline-none rounded px-1 sm:px-1.5 py-0.5 w-full truncate"/>
                           {person.email && <div className="text-[10px] sm:text-[11px] text-zinc-500 px-1 sm:px-1.5 truncate">{person.email}</div>}
-                          {person.role && <span className={`inline-block ml-1 sm:ml-1.5 mt-1 text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-full border font-medium ${person.role==="all"?"bg-[#02B681]/10 text-[#02B681] border-[#02B681]/20":"bg-zinc-100 text-zinc-600 border-zinc-200"}`}>{person.role==="all"?"Ve todos":"Solo su horario"}</span>}
+                          <div className="flex flex-wrap gap-1 ml-1 sm:ml-1.5 mt-1">
+                            {person.role && <span className={`inline-block text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-full border font-medium ${person.role==="all"?"bg-[#02B681]/10 text-[#02B681] border-[#02B681]/20":"bg-zinc-100 text-zinc-600 border-zinc-200"}`}>{person.role==="all"?"Ve todos":"Solo su horario"}</span>}
+                            {person.can_upload===false && <span className="inline-block text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">Solo ver</span>}
+                          </div>
                         </div>
                         <button onClick={()=>copyLink(person)} title="Copiar link sin registro" className={`shrink-0 p-1.5 rounded-lg border text-xs ${copiedId===person.id?"bg-green-100 border-green-300 text-green-700":"bg-white border-zinc-200 text-zinc-500 hover:bg-zinc-50"} hidden sm:inline-flex`}>{copiedId===person.id?"✓":"🔗"}</button>
+                        {!isViewerOwn && <button onClick={()=>{setPermEdit(person); setPermRole(person.role||"own"); setPermCanUpload(person.can_upload??true);}} title="Cambiar permisos" className="shrink-0 p-1.5 rounded-lg border bg-white border-zinc-200 text-zinc-500 hover:bg-zinc-50 hidden sm:inline-flex">⚙</button>}
                         {!isViewerOwn && <button onClick={()=>removePerson(person.id)} className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-600 px-1 shrink-0">×</button>}
                       </div>
                     </td>
@@ -434,15 +453,15 @@ export default function Home(){
                               <button onClick={()=>{updateShift(person.id,iso,undefined); setEditing(null);}} className="w-full text-[11px] text-zinc-500 hover:text-zinc-700">Limpiar</button>
                             </div>
                           ) : isFranco ? (
-                            <button onClick={()=>openEdit(person.id,iso)} className="w-full h-[56px] sm:h-[68px] rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 text-red-600 text-[11px] sm:text-xs font-bold grid place-items-center">Franco</button>
+                            <button disabled={!canUpload} onClick={()=> canUpload && openEdit(person.id,iso)} className={`w-full h-[56px] sm:h-[68px] rounded-lg border text-[11px] sm:text-xs font-bold grid place-items-center ${canUpload?"bg-red-50 border-red-200 hover:bg-red-100 text-red-600":"bg-zinc-100 border-zinc-200 text-zinc-400 cursor-not-allowed"}`}>Franco</button>
                           ) : (()=>{ const n=normalize(shift as Shift); if(!n) return (
-                            <button onClick={()=>openEdit(person.id,iso)} draggable={false}
-                              className="w-full h-[56px] sm:h-[68px] rounded-lg border border-dashed border-zinc-200 hover:border-[#02B681]/40 hover:bg-[#02B681]/10 text-zinc-400 hover:text-[#02B681] text-xs grid place-items-center font-medium">
+                            <button disabled={!canUpload} onClick={()=> canUpload && openEdit(person.id,iso)} draggable={false}
+                              className={`w-full h-[56px] sm:h-[68px] rounded-lg border text-xs grid place-items-center font-medium ${canUpload?"border-dashed border-zinc-200 hover:border-[#02B681]/40 hover:bg-[#02B681]/10 text-zinc-400 hover:text-[#02B681]":"border-zinc-200 bg-zinc-100 text-zinc-400 cursor-not-allowed"}`}>
                               +
                             </button>
                           ); return (
-                            <div draggable={!isViewerOwn || visiblePeople.length===1} onDragStart={()=>onDragStart(person.id,iso)} onClick={()=>openEdit(person.id,iso)}
-                              className="cursor-grab active:cursor-grabbing select-none bg-[#02B681] text-white rounded-lg px-1 sm:px-2 py-1.5 sm:py-2 text-[11px] sm:text-[12px] font-semibold shadow-sm hover:bg-[#02996f] flex flex-col items-center leading-tight gap-0.5">
+                            <div draggable={canUpload && (!isViewerOwn || visiblePeople.length===1)} onDragStart={()=> canUpload && onDragStart(person.id,iso)} onClick={()=> canUpload && openEdit(person.id,iso)}
+                              className={`select-none bg-[#02B681] text-white rounded-lg px-1 sm:px-2 py-1.5 sm:py-2 text-[11px] sm:text-[12px] font-semibold shadow-sm flex flex-col items-center leading-tight gap-0.5 ${canUpload?"cursor-grab active:cursor-grabbing hover:bg-[#02996f]":"opacity-60 cursor-not-allowed"}`}>
                               {n.map((s,i)=>(
                                 <div key={i} className="flex items-center gap-1"><SectorDot sector={s.sector}/>{s.from || "--:--"}<span className="opacity-60">—</span>{s.to || "--:--"}</div>
                               ))}
@@ -479,6 +498,7 @@ export default function Home(){
                   <div className="text-[11px] text-zinc-500 truncate">{person.email}</div>
                 </div>
                 <button onClick={()=>copyLink(person)} className={`p-1.5 rounded-lg border text-xs ${copiedId===person.id?"bg-green-100 border-green-300 text-green-700":"bg-white border-zinc-200 text-zinc-500"}`}>{copiedId===person.id?"✓":"🔗"}</button>
+                {!isViewerOwn && <button onClick={()=>{setPermEdit(person); setPermRole(person.role||"own"); setPermCanUpload(person.can_upload??true);}} className="p-1.5 rounded-lg border bg-white border-zinc-200 text-zinc-500">⚙</button>}
                 {!isViewerOwn && <button onClick={()=>removePerson(person.id)} className="text-zinc-400 px-2">×</button>}
               </div>
               <div className="p-2 grid grid-cols-3 gap-2">
@@ -517,14 +537,14 @@ export default function Home(){
                           <button onClick={()=>setEditing(null)} className="text-xs text-zinc-500">×</button>
                         </div>
                       ) : isFranco ? (
-                        <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-red-100 border-2 border-red-300 text-red-700 text-xs font-extrabold flex items-center justify-center tracking-wide min-h-[48px]">FRANCO</button>
+                        <button disabled={!canUpload} onClick={()=> canUpload && openEdit(person.id,iso)} className={`w-full flex-1 rounded border-2 text-xs font-extrabold flex items-center justify-center tracking-wide min-h-[48px] ${canUpload?"bg-red-100 border-red-300 text-red-700":"bg-zinc-100 border-zinc-200 text-zinc-400 cursor-not-allowed"}`}>FRANCO</button>
                       ) : n ? (
-                        <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-[#02B681] text-white text-[11px] font-semibold flex flex-col items-center justify-center leading-tight p-1">
+                        <button disabled={!canUpload} onClick={()=> canUpload && openEdit(person.id,iso)} className={`w-full flex-1 rounded text-[11px] font-semibold flex flex-col items-center justify-center leading-tight p-1 ${canUpload?"bg-[#02B681] text-white":"bg-zinc-300 text-zinc-500 cursor-not-allowed"}`}>
                           {n.map((s,i)=>(<span key={i}><SectorDot sector={s.sector}/>{s.from}—{s.to}</span>))}
                           {n.length===2 && <span className="text-[8px] opacity-70">cortado</span>}
                         </button>
                       ) : (
-                        <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded border border-dashed border-zinc-300 text-zinc-400 text-xs grid place-items-center">+</button>
+                        <button disabled={!canUpload} onClick={()=> canUpload && openEdit(person.id,iso)} className={`w-full flex-1 rounded border text-xs grid place-items-center ${canUpload?"border-dashed border-zinc-300 text-zinc-400":"bg-zinc-100 border-zinc-200 text-zinc-400 cursor-not-allowed"}`}>+</button>
                       )}
                     </div>
                   );
@@ -562,7 +582,7 @@ export default function Home(){
                 <input type="email" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="ana@empresa.com" className="border border-zinc-200 rounded-lg px-3 py-2.5 text-sm bg-white text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#02B681]/30 focus:border-[#02B681]"/>
               </label>
               <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-zinc-700">Permiso</span>
+                <span className="text-xs font-semibold text-zinc-700">Permiso de vista</span>
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={()=>setInviteRole("own")} className={`p-3 rounded-xl border text-left ${inviteRole==="own"?"bg-[#02B681]/10 border-[#02B681] ring-1 ring-[#02B681]/20":"bg-white border-zinc-200 hover:border-zinc-300"}`}>
                     <div className={`text-sm font-semibold ${inviteRole==="own"?"text-[#02B681]":"text-zinc-800"}`}>Solo su horario</div>
@@ -574,12 +594,57 @@ export default function Home(){
                   </button>
                 </div>
               </div>
+              <label className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer bg-zinc-50 border-zinc-200 hover:border-zinc-300">
+                <input type="checkbox" checked={inviteCanUpload} onChange={e=>setInviteCanUpload(e.target.checked)} className="h-4 w-4 accent-[#02B681]" />
+                <div>
+                  <div className="text-sm font-semibold text-zinc-800">Puede subir horarios</div>
+                  <div className="text-xs text-zinc-500">Manual o importando Excel/PDF/Imagen</div>
+                </div>
+              </label>
               {inviteError && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{inviteError}</p>}
               <p className="text-xs text-zinc-400">Se creará en Supabase y se enviará mail + link sin registro (/share/...).</p>
             </div>
             <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex gap-2 justify-end">
               <button onClick={()=>setInviteOpen(false)} className="px-4 py-2 rounded-lg border border-zinc-200 bg-white text-sm text-zinc-700 hover:bg-zinc-50">Cancelar</button>
               <button onClick={handleInvite} disabled={inviteSending} className="px-5 py-2 rounded-lg bg-[#02B681] text-white text-sm font-semibold hover:bg-[#02996f] disabled:opacity-50">{inviteSending?"Enviando...":"Invitar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {permEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={()=>setPermEdit(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md border border-zinc-200 overflow-hidden">
+            <div className="px-6 pt-6 pb-2">
+              <h2 className="text-lg font-bold text-zinc-900">Permisos — {permEdit.name}</h2>
+              <p className="text-sm text-zinc-500">{permEdit.email}</p>
+            </div>
+            <div className="px-6 py-4 flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-zinc-700">Vista</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={()=>setPermRole("own")} className={`p-3 rounded-xl border text-left ${permRole==="own"?"bg-[#02B681]/10 border-[#02B681] ring-1 ring-[#02B681]/20":"bg-white border-zinc-200"}`}>
+                    <div className={`text-sm font-semibold ${permRole==="own"?"text-[#02B681]":"text-zinc-800"}`}>Solo su horario</div>
+                    <div className="text-xs text-zinc-500">Solo su fila</div>
+                  </button>
+                  <button onClick={()=>setPermRole("all")} className={`p-3 rounded-xl border text-left ${permRole==="all"?"bg-[#02B681]/10 border-[#02B681] ring-1 ring-[#02B681]/20":"bg-white border-zinc-200"}`}>
+                    <div className={`text-sm font-semibold ${permRole==="all"?"text-[#02B681]":"text-zinc-800"}`}>Ver todos</div>
+                    <div className="text-xs text-zinc-500">Todo el tablero</div>
+                  </button>
+                </div>
+              </div>
+              <label className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer bg-zinc-50 border-zinc-200">
+                <input type="checkbox" checked={permCanUpload} onChange={e=>setPermCanUpload(e.target.checked)} className="h-4 w-4 accent-[#02B681]" />
+                <div>
+                  <div className="text-sm font-semibold text-zinc-800">Puede subir horarios</div>
+                  <div className="text-xs text-zinc-500">Manual o importando</div>
+                </div>
+              </label>
+            </div>
+            <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex gap-2 justify-end">
+              <button onClick={()=>setPermEdit(null)} className="px-4 py-2 rounded-lg border border-zinc-200 bg-white text-sm">Cancelar</button>
+              <button onClick={async()=>{ await apiFetch("/api/members",{method:"PATCH", body: JSON.stringify({id: permEdit.id, role: permRole, can_upload: permCanUpload})}); setPermEdit(null); await fetchMembers(); }} className="px-5 py-2 rounded-lg bg-[#02B681] text-white text-sm font-semibold">Guardar</button>
             </div>
           </div>
         </div>
