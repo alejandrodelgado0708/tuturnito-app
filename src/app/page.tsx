@@ -54,6 +54,7 @@ export default function Home(){
   const [importRows, setImportRows] = useState<{excelName:string, shifts:Record<string,Shift>, targetId:string}[]>([]);
   const [importDates, setImportDates] = useState<string[]>([]);
   const [importLoading, setImportLoading] = useState(false);
+  const [importErrorMsg, setImportErrorMsg] = useState<string | null>(null);
 
   const dates = useMemo(()=>{
     const s=parseISO(start);
@@ -234,7 +235,7 @@ export default function Home(){
         const url=URL.createObjectURL(file);
         const img=await new Promise<HTMLImageElement>((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url; });
         const canvas=document.createElement("canvas");
-        const scale=Math.min(2, 1200/img.width);
+        const scale=Math.min(2.5, 1600/img.width);
         canvas.width=img.width*scale; canvas.height=img.height*scale;
         const ctx=canvas.getContext("2d")!;
         ctx.drawImage(img,0,0,canvas.width,canvas.height);
@@ -242,7 +243,7 @@ export default function Home(){
         const d=imgData.data;
         for(let i=0;i<d.length;i+=4){
           const g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-          const v=g>160?255:(g<100?0:g>140?255:0);
+          const v=Math.min(255, Math.max(0, (g-128)*1.3+128));
           d[i]=d[i+1]=d[i+2]=v;
         }
         ctx.putImageData(imgData,0,0);
@@ -251,7 +252,7 @@ export default function Home(){
       };
       const canvas=await preprocess(f);
       const Tesseract:any = await import("tesseract.js");
-      const {data} = await Tesseract.recognize(canvas, "spa", { logger:()=>{} });
+      const {data} = await Tesseract.recognize(canvas, "spa", { logger:()=>{}, tessedit_pageseg_mode: 6 } as any);
       const text: string = data.text || "";
       const words: any[] = data.words || [];
       let dateCols:string[]=[];
@@ -345,7 +346,7 @@ export default function Home(){
       }
       if(!rows.length){
         const t=text.slice(0,800);
-        alert("No se detectaron empleados. Texto OCR:\n"+t.slice(0,400)+"\n\nProbá recortando solo la tabla o con mejor luz.");
+        setImportErrorMsg("No se detectaron empleados. Texto OCR:\n"+t.slice(0,400)+"\n\nProbá recortando solo la tabla o con mejor luz.");
         e.target.value=""; return;
       }
       const merged=new Map<string, any>();
@@ -483,7 +484,7 @@ export default function Home(){
           if(Object.keys(shifts).length) allRows.push({excelName:name.split(" ").slice(0,2).join(" "), shifts});
         }
       }
-      if(!allRows.length){ alert("No se detectaron tablas en el PDF. Probá con el Excel original."); e.target.value=""; return; }
+      if(!allRows.length){ setImportErrorMsg("No se detectaron tablas en el PDF. Probá con el Excel original o recortá la imagen."); e.target.value=""; return; }
       const merged=new Map<string, {excelName:string, shifts:Record<string,Shift>}>();
       for(const r of allRows){
         const key=r.excelName.toLowerCase();
@@ -855,7 +856,7 @@ export default function Home(){
           <div onClick={()=>setImportOpen(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
             <div className="px-6 pt-6 pb-3 border-b border-zinc-100">
-              <h2 className="text-lg font-bold text-zinc-900">Importar Excel — Asignar horarios</h2>
+              <h2 className="text-lg font-bold text-zinc-900">Importar — Asignar horarios</h2>
               <p className="text-sm text-zinc-500 mt-1">Detectadas {importRows.length} personas. Elige a quién derivar cada fila (o No importar).</p>
               <p className="text-xs text-zinc-400 mt-1">Fechas detectadas: {importDates.join(", ")}</p>
             </div>
@@ -881,6 +882,21 @@ export default function Home(){
             <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex gap-2 justify-end">
               <button onClick={()=>setImportOpen(false)} className="px-4 py-2 rounded-lg border border-zinc-200 bg-white text-sm">Cancelar</button>
               <button onClick={confirmImport} disabled={importLoading} className="px-5 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 disabled:opacity-50">{importLoading?"Importando...":"Confirmar ("+importRows.filter(r=>r.targetId!=="skip").length+")"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importErrorMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={()=>setImportErrorMsg(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md border border-zinc-200 overflow-hidden">
+            <div className="px-6 pt-6 pb-2">
+              <h2 className="text-lg font-bold text-zinc-900">No se pudo leer</h2>
+              <p className="text-sm text-zinc-600 mt-2 whitespace-pre-wrap leading-relaxed">{importErrorMsg}</p>
+            </div>
+            <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex justify-end gap-2">
+              <button onClick={()=>setImportErrorMsg(null)} className="px-5 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold">Entendido</button>
             </div>
           </div>
         </div>
