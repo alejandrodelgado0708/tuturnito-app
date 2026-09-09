@@ -5,9 +5,10 @@ import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
 import { nameKey } from "@/lib/schedule-import";
 import { SectorDot, SectorLegend } from "@/components/sector-dot";
+import { SECTORS, type Sector } from "@/lib/shift-sectors";
 import { readSchedule } from "@/lib/read-schedule";
 
-type Single = { from: string; to: string; sector?: import("@/lib/shift-sectors").Sector };
+type Single = { from: string; to: string; sector?: Sector };
 type Shift = Single | Single[] | null;
 type Role = "own" | "all";
 type Person = { id: string; name: string; email?: string; role?: Role; shifts: Record<string, Shift>; owner_id?: string };
@@ -53,8 +54,10 @@ export default function Home(){
   const [editing, setEditing] = useState<{pid:string; date:string}|null>(null);
   const [editFrom, setEditFrom] = useState("");
   const [editTo, setEditTo] = useState("");
+  const [editSector, setEditSector] = useState<Sector | "">("");
   const [editFrom2, setEditFrom2] = useState("");
   const [editTo2, setEditTo2] = useState("");
+  const [editSector2, setEditSector2] = useState<Sector | "">("");
   const [drag, setDrag] = useState<{pid:string; date:string}|null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -145,11 +148,9 @@ export default function Home(){
   }
   function handleSave(){
     if(!editing) return;
-    const previous = normalize(people.find(p=>p.id===editing.pid)?.shifts[editing.date]);
-    const sector = Array.isArray(previous) ? previous[0]?.sector : undefined;
     const arr: Single[]=[];
-    if(editFrom || editTo) arr.push({from:editFrom, to:editTo, ...(sector ? {sector} : {})});
-    if(editFrom2 || editTo2) arr.push({from:editFrom2, to:editTo2, ...(sector ? {sector} : {})});
+    if(editFrom || editTo) arr.push({from:editFrom, to:editTo, ...(editSector?{sector:editSector}:{})});
+    if(editFrom2 || editTo2) arr.push({from:editFrom2, to:editTo2, ...(editSector2?{sector:editSector2}: editSector?{sector:editSector}:{})});
     let v: Shift | undefined;
     if(arr.length===0) v=undefined;
     else if(arr.length===1) v=arr[0];
@@ -161,10 +162,10 @@ export default function Home(){
     const s=people.find(p=>p.id===pid)?.shifts[date];
     const n=normalize(s);
     if(Array.isArray(n)){
-      setEditFrom(n[0]?.from ?? ""); setEditTo(n[0]?.to ?? "");
-      setEditFrom2(n[1]?.from ?? ""); setEditTo2(n[1]?.to ?? "");
+      setEditFrom(n[0]?.from ?? ""); setEditTo(n[0]?.to ?? ""); setEditSector((n[0] as any)?.sector ?? "");
+      setEditFrom2(n[1]?.from ?? ""); setEditTo2(n[1]?.to ?? ""); setEditSector2((n[1] as any)?.sector ?? "");
     } else {
-      setEditFrom(""); setEditTo(""); setEditFrom2(""); setEditTo2("");
+      setEditFrom(""); setEditTo(""); setEditSector(""); setEditFrom2(""); setEditTo2(""); setEditSector2("");
     }
     setEditing({pid,date});
   }
@@ -412,11 +413,19 @@ export default function Home(){
                                 <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(formatTimeInput(e.target.value))} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                                 <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(formatTimeInput(e.target.value))} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                               </div>
+                              <select value={editSector} onChange={e=>setEditSector(e.target.value as Sector | "")} className="w-full border border-zinc-200 rounded-lg px-2 py-1 text-xs bg-white text-zinc-900">
+                                <option value="">Sin sector</option>
+                                {Object.entries(SECTORS).map(([k,v])=> <option key={k} value={k}>{(v as any).label}</option>)}
+                              </select>
                               <div className="flex items-center gap-1 text-[10px] text-zinc-400"><span className="flex-1 h-px bg-zinc-200"/>cortado<span className="flex-1 h-px bg-zinc-200"/></div>
                               <div className="flex gap-1">
                                 <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom2} onChange={e=>setEditFrom2(formatTimeInput(e.target.value))} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                                 <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo2} onChange={e=>setEditTo2(formatTimeInput(e.target.value))} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                               </div>
+                              <select value={editSector2} onChange={e=>setEditSector2(e.target.value as Sector | "")} className="w-full border border-zinc-200 rounded-lg px-2 py-1 text-xs bg-white text-zinc-900">
+                                <option value="">Sin sector</option>
+                                {Object.entries(SECTORS).map(([k,v])=> <option key={k} value={k}>{(v as any).label}</option>)}
+                              </select>
                               <div className="flex gap-1 pt-1">
                                 <button onClick={handleSave} className="flex-1 bg-[#02B681] text-white rounded-lg text-xs py-2 font-semibold hover:bg-[#02996f]">Guardar</button>
                                 <button onClick={()=>setEditing(null)} className="px-3 border border-zinc-200 bg-white rounded-lg text-xs py-2 hover:bg-zinc-50">×</button>
@@ -487,12 +496,22 @@ export default function Home(){
                       <div className="text-[11px] font-semibold text-zinc-900">{fmtDate(d)}</div>
                       {editingHere ? (
                         <div className="w-full flex flex-col gap-1">
-                          <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
-                          <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          <div className="flex gap-1">
+                            <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                            <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          </div>
+                          <select value={editSector} onChange={e=>setEditSector(e.target.value as Sector | "")} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900">
+                            <option value="">Sin sector</option>
+                            {Object.entries(SECTORS).map(([k,v])=> <option key={k} value={k}>{(v as any).label}</option>)}
+                          </select>
                           <div className="flex gap-1">
                             <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom2} onChange={e=>setEditFrom2(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
                             <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo2} onChange={e=>setEditTo2(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
                           </div>
+                          <select value={editSector2} onChange={e=>setEditSector2(e.target.value as Sector | "")} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900">
+                            <option value="">Sin sector</option>
+                            {Object.entries(SECTORS).map(([k,v])=> <option key={k} value={k}>{(v as any).label}</option>)}
+                          </select>
                           <button onClick={handleSave} className="bg-[#02B681] text-white rounded text-xs py-1 font-semibold">Guardar</button>
                           <button onClick={()=>{updateShift(person.id,iso,null); setEditing(null);}} className="bg-red-50 border border-red-200 text-red-600 rounded text-xs py-1 font-bold">Franco</button>
                           <button onClick={()=>setEditing(null)} className="text-xs text-zinc-500">×</button>
