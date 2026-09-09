@@ -25,6 +25,38 @@ function formatTimeInput(v:string){
   if(d.length===3) return `0${d[0]}:${d.slice(1)}`;
   return d.slice(0,2)+":"+d.slice(2);
 }
+function normTime(t:string){
+  let s=t.trim().replace(/[ʵ’ʼʽʻ′´`]/g,":").replace(/\s+/g," ").toLowerCase();
+  s=s.replace(/\s*a\s*/g,"-").replace(/\s*\/\/\s*/g,"/").replace(/\s*\/\s*/g,"/");
+  return s;
+}
+function parseCell(raw:string): any {
+  const r=raw.trim();
+  if(!r || r==="—" || r==="-") return undefined;
+  const up=r.toUpperCase();
+  if(up==="FRANCO") return null;
+  if(["BANFIELD","PLANTA","ALSINA","ALTO AVELLANEDA","CAPAC.","CAPACITACION","AUSENTE","ENF","SUSPENDIDO","FULL","DIA","DEL","COMERCIO","EMPLEADO","REUNION"].includes(up)) return {from:r, to:""};
+  const n=normTime(r);
+  if(n.includes("/")){
+    const parts=n.split("/").map((p:string)=>p.trim()).filter(Boolean);
+    const arr=parts.map((p:string)=>{
+      const [a,b]=p.split("-").map((x:string)=>x.trim());
+      const fa=a.includes(":")?a:(a?`${a.padStart(2,"0")}:00`:"");
+      const fb=b?.includes(":")?b:(b?`${b.padStart(2,"0")}:00`:"");
+      return {from:fa, to:fb};
+    }).filter((x:any)=>x.from||x.to);
+    if(!arr.length) return undefined;
+    return arr.length===1?arr[0]:arr;
+  }
+  if(n.includes("-")){
+    const [a,b]=n.split("-").map((x:string)=>x.trim());
+    const fa=a.includes(":")?a:(a?`${a.padStart(2,"0")}:00`:"");
+    const fb=b?.includes(":")?b:(b?`${b.padStart(2,"0")}:00`:"");
+    if(!fa&&!fb) return undefined;
+    return {from:fa, to:fb};
+  }
+  return {from:r, to:""};
+}
 
 export default function SharePage(){
   const params=useParams() as any;
@@ -81,6 +113,120 @@ export default function SharePage(){
     } else { setEditFrom(""); setEditTo(""); setEditFrom2(""); setEditTo2(""); }
     setEditing({pid,date});
   }
+  async function handleImportShare(e: React.ChangeEvent<HTMLInputElement>){
+    const f=(e.target as HTMLInputElement).files?.[0]; if(!f) return;
+    if(!canUpload){ alert("No tenés permiso para subir horarios"); return; }
+    const isPdf=f.name.toLowerCase().endsWith(".pdf")||f.type==="application/pdf";
+    const isImg=/\.(jpg|jpeg|png|webp)$/i.test(f.name)||f.type.startsWith("image/");
+    let rows:{excelName:string, shifts:Record<string,any>}[]=[];
+    let dateCols:string[]=[];
+    if(isImg){
+      const prep=async (file:File):Promise<HTMLCanvasElement>=>{
+        const url=URL.createObjectURL(file);
+        const img=await new Promise<HTMLImageElement>((res,rej)=>{const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=url;});
+        const canvas=document.createElement("canvas");
+        const scale=Math.min(2.5,1600/img.width);
+        canvas.width=img.width*scale; canvas.height=img.height*scale;
+        const ctx=canvas.getContext("2d")!;
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        const d=ctx.getImageData(0,0,canvas.width,canvas.height);
+        for(let i=0;i<d.data.length;i+=4){ const g=0.299*d.data[i]+0.587*d.data[i+1]+0.114*d.data[i+2]; const v=Math.min(255,Math.max(0,(g-128)*1.3+128)); d.data[i]=d.data[i+1]=d.data[i+2]=v; }
+        ctx.putImageData(d,0,0); URL.revokeObjectURL(url); return canvas;
+      };
+      const canvas=await prep(f);
+      const Tesseract:any=await import("tesseract.js");
+      const {data}=await Tesseract.recognize(canvas,"spa",{tessedit_pageseg_mode:6} as any);
+      const text=data.text||"";
+      const lines=text.split("\n").map((l:string)=>l.trim()).filter(Boolean);
+      for(const l of lines){ const m=l.match(/\d+\/\d+/g); if(m && m.length>=5){ dateCols=m.slice(0,7); break; } }
+      if(!dateCols.length) dateCols=Array.from({length:7},(_,i)=>`${i+7}/9`);
+      for(const line of lines){
+        if(!line||line.toUpperCase().includes("COLABORADOR")||line.toUpperCase().includes("FECHA")) continue;
+        const m=line.match(/([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,2})/);
+        if(!m) continue;
+        const name=m[1].trim(); const rest=line.slice(line.indexOf(name)+name.length).trim();
+        const cells=(rest.match(/Franco|REUNION|\d{1,2}\s*a\s*\d{1,2}/gi)||[]).slice(0,7);
+        while(cells.length<7) cells.push("");
+        const shifts:Record<string,any>={};
+        dateCols.slice(0,7).forEach((d,i)=>{ const raw=cells[i]||""; const p=parseCell(raw); if(p!==undefined){ const iso=(()=>{const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0")); return `${new Date().getFullYear()}-${mon}-${day}`;})(); shifts[iso]=p; }});
+        if(Object.keys(shifts).length) rows.push({excelName:name, shifts});
+      }
+    } else if(isPdf){
+      const buf=await f.arrayBuffer();
+      const pdfjs:any=await import("pdfjs-dist");
+      if(pdfjs.GlobalWorkerOptions) try{ pdfjs.GlobalWorkerOptions.workerSrc=`//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`; }catch{}
+      const pdf=await pdfjs.getDocument({data:buf}).promise;
+      let allRows:any[]=[]; let allDates:string[]=[];
+      for(let p=1;p<=Math.min(pdf.numPages,5);p++){
+        const page=await pdf.getPage(p);
+        const txt=await page.getTextContent();
+        const items=(txt.items as any[]).map((it:any)=>({str:it.str,x:it.transform[4],y:it.transform[5]})).filter((it:any)=>it.str.trim());
+        const rowsMap=new Map<number,any[]>();
+        for(const it of items){ const y=Math.round(it.y/5)*5; if(!rowsMap.has(y)) rowsMap.set(y,[]); rowsMap.get(y)!.push(it); }
+        const rws=[...rowsMap.entries()].sort((a,b)=>b[0]-a[0]).map(([_,v])=>v.sort((a:any,b:any)=>a.x-b.x));
+        let headerIdx=-1; let dCols:string[]=[];
+        for(let i=0;i<rws.length;i++){
+          const line=rws[i].map((c:any)=>c.str).join(" ").toUpperCase();
+          if(line.includes("COLABOR")||line.includes("EMPLEA")){
+            headerIdx=i;
+            const nxt=rws[i+1]?.map((c:any)=>c.str).join(" ")||"";
+            const fm=nxt.match(/\d+\/\d+/g);
+            if(fm) dCols=fm; else { const nums=rws[i].map((c:any)=>c.str).join(" ").match(/\b\d{1,2}\b/g)||[]; dCols=nums.filter((n:string)=>parseInt(n)>=1&&parseInt(n)<=31).slice(0,7); }
+            if(dCols.length) allDates=[...new Set([...allDates,...dCols])];
+            break;
+          }
+        }
+        if(headerIdx===-1||!dCols.length) continue;
+        const hxs=rws[headerIdx].map((c:any)=>c.x);
+        for(let r=headerIdx+2;r<rws.length;r++){
+          const line=rws[r].map((c:any)=>c.str).join(" ").trim();
+          if(!line||line.toUpperCase().includes("CANTIDAD")) break;
+          if(["LUNES","MARTES","FECHA"].some(k=>line.toUpperCase().startsWith(k))) continue;
+          const name=rws[r].slice(0,2).map((c:any)=>c.str).join(" ").trim();
+          if(name.length<3) continue;
+          const cells:string[]=[];
+          for(let ci=1;ci<hxs.length&&ci<=7;ci++){ const hx=hxs[ci]; const cand=rws[r].filter((c:any)=>Math.abs(c.x-hx)<60).map((c:any)=>c.str).join(" ").trim(); cells.push(cand); }
+          const shifts:Record<string,any>={};
+          dCols.forEach((d,i)=>{ const raw=cells[i]||""; const p=parseCell(raw); if(p!==undefined){ const iso=d.includes("/")?(()=>{const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0")); return `${new Date().getFullYear()}-${mon}-${day}`;})():`2025-09-${d.padStart(2,"0")}`; shifts[iso]=p; }});
+          if(Object.keys(shifts).length) allRows.push({excelName:name.split(" ").slice(0,2).join(" "), shifts});
+        }
+      }
+      const merged=new Map<string,any>();
+      for(const r of allRows){ const k=r.excelName.toLowerCase(); if(!merged.has(k)) merged.set(k,{excelName:r.excelName, shifts:{}}); Object.assign(merged.get(k)!.shifts, r.shifts); }
+      rows=[...merged.values()];
+      dateCols=allDates;
+    } else {
+      const data=await f.arrayBuffer();
+      const wb=XLSX.read(data,{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const json=XLSX.utils.sheet_to_json<any[]>(ws,{header:1, defval:""});
+      if(json.length<2){ (e.target as HTMLInputElement).value=""; return; }
+      const header=json[0] as string[];
+      const dCols=header.slice(1);
+      const pDates=dCols.map((h:any)=>{ const s=String(h).trim(); if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; const d=new Date(s); if(!isNaN(d.getTime())) return toISO(d); return s; });
+      dateCols=pDates;
+      for(const r of (json.slice(1) as any[]).filter((r:any)=>String(r[0]).trim())){
+        const shifts:Record<string,any>={};
+        dCols.forEach((_:any,i:number)=>{ const raw=String(r[i+1]??"").trim(); const p=parseCell(raw); if(p!==undefined) shifts[pDates[i]]=p; });
+        rows.push({excelName:String(r[0]).trim(), shifts});
+      }
+    }
+    if(!rows.length){ alert("No se detectaron filas para importar"); (e.target as HTMLInputElement).value=""; return; }
+    const target=members.find((m:any)=>m.email.toLowerCase()===invite.email.toLowerCase()) || members[0];
+    if(!target){ alert("No se encontró tu usuario para asignar"); return; }
+    let toUse:any=null;
+    if(rows.length===1) toUse=rows[0];
+    else {
+      const match=rows.find(r=>r.excelName.toLowerCase()===invite.email.split("@")[0].toLowerCase() || r.excelName.toLowerCase()===target.name.toLowerCase());
+      toUse=match||rows[0];
+    }
+    const merged={...target.shifts, ...toUse.shifts};
+    const res=await fetch("/api/share-update",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({token, memberId: target.id, shifts: merged})});
+    if(!res.ok){ const j=await res.json(); alert(j.error||"Error al importar"); return; }
+    await load();
+    (e.target as HTMLInputElement).value="";
+    alert("Importado correctamente para "+target.name);
+  }
 
   if(loading) return <div className="min-h-screen grid place-items-center bg-zinc-50 p-6">Cargando...</div>;
   if(error) return <div className="min-h-screen grid place-items-center bg-zinc-50 p-6"><div className="bg-white border border-zinc-200 rounded-2xl p-8 max-w-md w-full text-center">{error}</div></div>;
@@ -101,11 +247,7 @@ export default function SharePage(){
           <button onClick={()=>setStart(toISO(new Date()))} className="px-3 py-2 rounded-lg border border-zinc-200 bg-white text-sm">Hoy</button>
         </div>
         <div className="ml-auto flex gap-2">
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={async(e)=>{
-            const f=e.target.files?.[0]; if(!f) return;
-            alert("Importar por link: sube el archivo y se asignará a tu usuario ("+invite.email+")");
-            e.target.value="";
-          }}/>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={handleImportShare}/>
           <button disabled={!canUpload} onClick={()=>fileRef.current?.click()} className={`text-xs sm:text-sm px-4 py-2 rounded-lg border font-medium ${!canUpload?"bg-zinc-100 text-zinc-400 border-zinc-200 cursor-not-allowed":"bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>Importar</button>
         </div>
       </div>
