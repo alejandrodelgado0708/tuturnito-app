@@ -267,8 +267,6 @@ export default function Home(){
         const d2=(await tryOcr(canvas2, 11)) as any;
         if((d2.text||"").length>text.length) { text=d2.text; words=d2.words; }
       }
-      const text: string = data.text || "";
-      const words: any[] = data.words || [];
       let dateCols:string[]=[];
       const lines=text.split("\n").map((l:string)=>l.trim()).filter(Boolean);
       for(const l of lines){
