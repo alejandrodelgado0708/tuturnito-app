@@ -26,7 +26,8 @@ export async function POST(req: Request) {
   const supabase = createClient(url, serviceKey);
 
   const token = crypto.randomUUID();
-  const inviteLink = `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/share/${token}`;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) || new URL(req.url).origin;
+  const inviteLink = `${siteUrl}/share/${token}`;
 
   const { data: userData } = await supabase.auth.getUser();
   let ownerId: string | null = null;
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
   } catch {}
 
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback`,
+    redirectTo: `${siteUrl}/auth/callback`,
     data: { name, role: role || "own", share_token: token, share_link: inviteLink },
   });
 
