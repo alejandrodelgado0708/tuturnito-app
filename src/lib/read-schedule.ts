@@ -1,7 +1,8 @@
 import * as XLSX from "xlsx";
 import { mergeImports, parseSchedule, type ImportResult, type Word } from "./schedule-import";
+import { readGrid } from "./schedule-grid";
 
-export async function readSchedule(file: File, year: number): Promise<ImportResult> {
+export async function readSchedule(file: File, year: number, month?: number): Promise<ImportResult> {
   if (/\.(xlsx|xls)$/i.test(file.name)) {
     const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
     return mergeImports(workbook.SheetNames.map(name => {
@@ -12,14 +13,27 @@ export async function readSchedule(file: File, year: number): Promise<ImportResu
       }));
       // A month/year in the sheet title is also a valid table heading.
       words.unshift({ text: name, bbox: { x0: 0, x1: 100, y0: -30, y1: -10 } });
-      return parseSchedule(words, year);
+      return parseSchedule(words, year, month);
     }));
   }
   const { createWorker, PSM } = await import("tesseract.js");
   let worker: Awaited<ReturnType<typeof createWorker>> | undefined;
   const recognize = async (canvas: HTMLCanvasElement) => {
-    worker ??= await createWorker("spa");
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT, preserve_interword_spaces: "1" });
+    worker ??= await createWorker(["spa", "eng"]);
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("No se pudo procesar la imagen.");
+    const gridWords = await readGrid(context.getImageData(0, 0, canvas.width, canvas.height), async (pixels, numeric, mode) => {
+      const cell = document.createElement("canvas");
+      cell.width = pixels.width; cell.height = pixels.height;
+      const cellContext = cell.getContext("2d")!;
+      const frame = cellContext.createImageData(pixels.width, pixels.height);
+      frame.data.set(pixels.data);
+      cellContext.putImageData(frame, 0, 0);
+      await worker!.setParameters({ tessedit_pageseg_mode: mode === "7" ? PSM.SINGLE_LINE : PSM.SINGLE_BLOCK, tessedit_char_whitelist: numeric ? "0123456789/-" : "", user_defined_dpi: "300" });
+      return (await worker!.recognize(cell)).data.text;
+    });
+    if (gridWords.some(w => /colaborador|empleado|nombre/i.test(w.text))) return gridWords;
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT, preserve_interword_spaces: "1", tessedit_char_whitelist: "" });
     const { data } = await worker.recognize(canvas, {}, { blocks: true, text: true });
     const words = (data.blocks ?? []).flatMap(b => b.paragraphs.flatMap(p => p.lines.flatMap(l => l.words)));
     return words;
@@ -58,7 +72,7 @@ export async function readSchedule(file: File, year: number): Promise<ImportResu
           pageOffset += viewport.height + 100;
           page.cleanup();
         }
-        return parseSchedule(documentWords, year);
+        return parseSchedule(documentWords, year, month);
       } finally { await loadingTask.destroy(); }
     }
     const url = URL.createObjectURL(file);
@@ -67,13 +81,13 @@ export async function readSchedule(file: File, year: number): Promise<ImportResu
         const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("No se pudo abrir la imagen.")); image.src = url;
       });
       const canvas = document.createElement("canvas");
-      const scale = Math.min(2, Math.max(1, 2400 / img.width));
-      canvas.width = Math.ceil(img.width * scale); canvas.height = Math.ceil(img.height * scale);
+      // Preserve original rule positions; individual cells are enlarged by readGrid.
+      canvas.width = img.width; canvas.height = img.height;
       const context = canvas.getContext("2d");
       if (!context) throw new Error("No se pudo procesar la imagen.");
       context.fillStyle = "white"; context.fillRect(0, 0, canvas.width, canvas.height);
       context.drawImage(img, 0, 0, canvas.width, canvas.height);
-      return parseSchedule(await recognize(canvas), year);
+      return parseSchedule(await recognize(canvas), year, month);
     } finally { URL.revokeObjectURL(url); }
   } finally { await worker?.terminate(); }
 }

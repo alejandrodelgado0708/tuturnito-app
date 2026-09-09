@@ -46,6 +46,23 @@ test("never invent missing months or accept impossible dates", () => {
   assert.equal(parseSchedule(table([["Febrero 2026"], ["Fecha", "30"], ["Colaborador", "Lunes"], ["Ana", "8-16"]]), 2026).rows.length, 0);
 });
 
+test("cropped month can use the calendar context, always with a warning", () => {
+  const words = table([["Fecha", "7", "8"], ["Colaborador", "Lunes", "Martes"], ["NAHIARA ARCE", "Franco", "10 A 15"]]);
+  const result = parseSchedule(words, 2026, 9);
+  assert.deepEqual(result.dates, ["2026-09-07", "2026-09-08"]);
+  assert.equal(result.rows[0].excelName, "NAHIARA ARCE");
+  assert.ok(result.warnings.some(w => w.includes("septiembre del calendario")));
+  const explicit = parseSchedule([...table([["Octubre 2026"]], 0, -30), ...words], 2026, 9);
+  assert.deepEqual(explicit.dates, ["2026-10-07", "2026-10-08"]);
+  assert.ok(!explicit.warnings.some(w => w.includes("del calendario")));
+});
+
+test("missing OCR date must not shift later hours to the wrong day", () => {
+  const result = parseSchedule(table([["Fecha", "7", "", "9"], ["Colaborador", "Lunes", "Martes", "Miércoles"], ["Ana", "8-16", "9-17", "10-18"]]), 2026, 9);
+  assert.equal(result.rows.length, 0);
+  assert.ok(result.warnings.some(w => w.includes("todas las fechas")));
+});
+
 test("warn about assumed years and weekday mismatches", () => {
   const result = parseSchedule(table([["Septiembre"], ["Fecha", "7"], ["Colaborador", "Martes"], ["Ana", "8-16"]]), 2026);
   assert.equal(result.warnings.length, 2);

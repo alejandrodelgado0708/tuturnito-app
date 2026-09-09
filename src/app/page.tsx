@@ -208,7 +208,7 @@ export default function Home(){
     setImportErrorMsg(null);
     setImportWarnings([]);
     try {
-      const result = await readSchedule(file, Number(start.slice(0, 4)));
+      const result = await readSchedule(file, Number(start.slice(0, 4)), Number(start.slice(5, 7)));
       if (!result.rows.length) throw new Error("No se detectaron horarios con fechas válidas. Verificá que se vean el mes, Fecha, Colaborador y los horarios. " + result.warnings.join(" "));
       setImportRows(result.rows.map(row => {
         const matches = people.filter(person => nameKey(person.name) === nameKey(row.excelName) || nameKey(person.email ?? "") === nameKey(row.excelName));

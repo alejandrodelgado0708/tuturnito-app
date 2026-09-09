@@ -61,7 +61,7 @@ export function mergeImports(results: ImportResult[]): ImportResult {
 }
 
 /** Coordinates always run left-to-right and top-to-bottom, including PDF input. */
-export function parseSchedule(words: Word[], fallbackYear: number): ImportResult {
+export function parseSchedule(words: Word[], fallbackYear: number, fallbackMonth?: number): ImportResult {
   const lines: Word[][] = [];
   for (const word of words.filter(w => w.text.trim()).sort((a, b) => a.bbox.y0 - b.bbox.y0)) {
     const cy = (word.bbox.y0 + word.bbox.y1) / 2;
@@ -72,7 +72,8 @@ export function parseSchedule(words: Word[], fallbackYear: number): ImportResult
     if (line) line.push(word); else lines.push([word]);
   }
   lines.forEach(line => line.sort((a, b) => a.bbox.x0 - b.bbox.x0));
-  let month: number | undefined;
+  let month = fallbackMonth && fallbackMonth >= 1 && fallbackMonth <= 12 ? fallbackMonth : undefined;
+  let explicitMonth = false;
   let year = fallbackYear;
   let explicitYear = false;
   const rows: ImportRow[] = [];
@@ -81,7 +82,7 @@ export function parseSchedule(words: Word[], fallbackYear: number): ImportResult
   for (let i = 0; i < lines.length; i++) {
     const text = nameKey(lines[i].map(w => w.text).join(" "));
     const foundMonth = months.findIndex(m => new RegExp(`\\b${m}\\b`).test(text.replace(/setiembre/g, "septiembre")));
-    if (foundMonth >= 0) month = foundMonth + 1;
+    if (foundMonth >= 0) { month = foundMonth + 1; explicitMonth = true; }
     if (/\b(19|20|21)\d{2}\b/.test(text) && (foundMonth >= 0 || /fecha|colaborador|nombre|empleado|ano/.test(text))) {
       year = +text.match(/\b(?:19|20|21)\d{2}\b/)![0]; explicitYear = true;
     }
@@ -116,8 +117,13 @@ export function parseSchedule(words: Word[], fallbackYear: number): ImportResult
         warnings.add("Un bloque no tiene fechas válidas o le falta el mes; no se importó ese bloque.");
         continue;
       }
-      if (!explicitYear && columns.some(c => !/\d{4}|[/-]\d{2}[/-]\d{2}$/.test(c.word.text))) warnings.add(`El documento no indica el año en algunas fechas: se usó ${fallbackYear}.`);
       const dayWords = lines[i].filter(w => within(w) && weekdays.includes(nameKey(w.text)));
+      if (dayWords.length > columns.length) {
+        warnings.add("No se pudieron leer todas las fechas de un bloque; no se importó para evitar desplazar los horarios.");
+        continue;
+      }
+      if (!explicitMonth && month && columns.some(c => /^\d{1,2}$/.test(c.word.text.trim()))) warnings.add(`El documento no indica el mes: se usó ${months[month - 1]} del calendario abierto. Revisá las fechas antes de confirmar.`);
+      if (!explicitYear && columns.some(c => !/\d{4}|[/-]\d{2}[/-]\d{2}$/.test(c.word.text))) warnings.add(`El documento no indica el año en algunas fechas: se usó ${fallbackYear}.`);
       const anchors = columns.map((col, index) => dayWords.length === columns.length ? center(dayWords[index]) : center(col.word));
       const gap = anchors.length > 1 ? anchors[1] - anchors[0] : Math.max(60, anchors[0] - headers[hi].bbox.x1);
       const boundaries = anchors.map((x, index) => index ? (anchors[index - 1] + x) / 2 : x - gap / 2);
