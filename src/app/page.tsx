@@ -518,7 +518,6 @@ export default function Home(){
         </>
         )}
 
-        <SectorLegend/>
         <div className="mt-4 grid sm:grid-cols-3 gap-3 text-xs text-zinc-600">
           <div className="bg-white border border-zinc-200 rounded-lg p-3"><b>Importar:</b> Excel, PDF o imagen con mes, fechas y colaboradores. Admite bloques repetidos y turnos como &quot;08:00-16:00&quot;, &quot;8 a 12 / 16 a 20&quot; o &quot;FRANCO&quot;.</div>
           <div className="bg-white border border-zinc-200 rounded-lg p-3"><b>Manual:</b> Invita por email y elige si ve solo su horario o todos.</div>
