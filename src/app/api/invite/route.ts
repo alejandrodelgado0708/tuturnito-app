@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const supabase = createClient(url, serviceKey);
 
   const token = crypto.randomUUID();
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) || new URL(req.url).origin;
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) || new URL(req.url).origin;
   const inviteLink = `${siteUrl}/share/${token}`;
 
   const { data: userData } = await supabase.auth.getUser();
