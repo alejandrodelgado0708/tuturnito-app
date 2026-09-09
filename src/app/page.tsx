@@ -4,9 +4,17 @@ import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
 
-type Shift = { from: string; to: string } | null;
+type Single = { from: string; to: string };
+type Shift = Single | Single[] | null;
 type Role = "own" | "all";
 type Person = { id: string; name: string; email?: string; role?: Role; shifts: Record<string, Shift>; owner_id?: string };
+function normalize(s: Shift | undefined): Single[] | null | undefined {
+  if (s === undefined) return undefined;
+  if (s === null) return null;
+  if (Array.isArray(s)) return s.length ? s : undefined;
+  if ((s as Single).from || (s as Single).to) return [s as Single];
+  return undefined;
+}
 
 const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const DAY_FULL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -27,6 +35,8 @@ export default function Home(){
   const [editing, setEditing] = useState<{pid:string; date:string}|null>(null);
   const [editFrom, setEditFrom] = useState("");
   const [editTo, setEditTo] = useState("");
+  const [editFrom2, setEditFrom2] = useState("");
+  const [editTo2, setEditTo2] = useState("");
   const [drag, setDrag] = useState<{pid:string; date:string}|null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -74,23 +84,36 @@ export default function Home(){
     fetchMembers();
   },[]);
 
-  async function updateShift(pid:string, date:string, shift:Shift){
+  async function updateShift(pid:string, date:string, shift:Shift | undefined){
     const person = people.find(p=>p.id===pid);
     if(!person) return;
-    const newShifts = {...person.shifts, [date]: shift};
+    const newShifts = {...person.shifts};
+    if(shift===undefined) delete newShifts[date];
+    else (newShifts as any)[date]=shift;
     setPeople(p=>p.map(per=> per.id===pid? {...per, shifts:newShifts}:per));
     await fetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: pid, shifts: newShifts})});
   }
   function handleSave(){
     if(!editing) return;
-    const v:Shift = (!editFrom && !editTo) ? null : {from:editFrom, to:editTo};
+    const arr: Single[]=[];
+    if(editFrom || editTo) arr.push({from:editFrom, to:editTo});
+    if(editFrom2 || editTo2) arr.push({from:editFrom2, to:editTo2});
+    let v: Shift | undefined;
+    if(arr.length===0) v=undefined;
+    else if(arr.length===1) v=arr[0];
+    else v=arr;
     updateShift(editing.pid, editing.date, v);
     setEditing(null);
   }
   function openEdit(pid:string, date:string){
-    const s=people.find(p=>p.id===pid)?.shifts[date] ?? null;
-    setEditFrom(s?.from ?? "");
-    setEditTo(s?.to ?? "");
+    const s=people.find(p=>p.id===pid)?.shifts[date];
+    const n=normalize(s);
+    if(Array.isArray(n)){
+      setEditFrom(n[0]?.from ?? ""); setEditTo(n[0]?.to ?? "");
+      setEditFrom2(n[1]?.from ?? ""); setEditTo2(n[1]?.to ?? "");
+    } else {
+      setEditFrom(""); setEditTo(""); setEditFrom2(""); setEditTo2("");
+    }
     setEditing({pid,date});
   }
 
@@ -176,14 +199,20 @@ export default function Home(){
         const shifts:Record<string,Shift>={};
         dateCols.forEach((_,i)=>{
           const raw=String(r[i+1]??"").trim();
-          if(!raw || raw.toLowerCase()==="libre" || raw==="-") shifts[parsedDates[i]]=null;
+          if(!raw || raw.toLowerCase()==="franco" || raw.toLowerCase()==="libre" || raw==="-" || raw==="—") shifts[parsedDates[i]]=null;
+          else if(raw.includes("/")){
+            const parts=raw.split("/").map(s=>s.trim()).filter(Boolean);
+            const arr=parts.map(p=>{
+              const [a,b]=p.split("-").map(s=>s.trim());
+              return {from:a||"", to:b||""};
+            }).filter(x=>x.from||x.to);
+            shifts[parsedDates[i]]= arr.length===1?arr[0]:arr;
+          }
           else if(raw.includes("-")){
             const [a,b]=raw.split("-").map(s=>s.trim());
             shifts[parsedDates[i]]={from:a,to:b};
           } else shifts[parsedDates[i]]={from:raw,to:""};
         });
-        const cleanShifts:Record<string,Shift>={};
-        Object.entries(shifts).forEach(([k,v])=>{ if(v) cleanShifts[k]=v; });
         await fetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:String(r[0]).trim(), email: `${String(r[0]).trim().toLowerCase().replace(/\s+/g,".")}@import.local`, role:"own"})}).catch(()=>{});
       }
       await fetchMembers();
@@ -197,7 +226,9 @@ export default function Home(){
   function handleExport(){
     const header=["Nombre", ...dates];
     const rows=visiblePeople.map(p=>[p.name, ...dates.map(d=>{
-      const s=p.shifts[d]; if(!s) return "LIBRE"; return `${s.from}-${s.to}`;
+      const s=p.shifts[d]; if(s===null) return "Franco"; if(!s) return ""; 
+      const arr = Array.isArray(s) ? s : [s];
+      return arr.map(x=>`${x.from}-${x.to}`).join(" / ");
     })]);
     const ws=XLSX.utils.aoa_to_sheet([header, ...rows]);
     ws["!cols"]=[{wch:20}, ...dates.map(()=>({wch:13}))];
@@ -304,34 +335,40 @@ export default function Home(){
                         <td key={iso} onDragOver={e=>e.preventDefault()} onDrop={()=>onDrop(person.id, iso)}
                           className={`p-1.5 sm:p-2.5 border-r border-zinc-100 last:border-0 text-center align-middle h-[72px] sm:h-[88px] ${weekend?"bg-[#02B681]/[0.03]":""} ${drag?.pid===person.id&&drag?.date===iso?"opacity-40":""}`}>
                           {editingHere ? (
-                            <div className="relative z-10 flex flex-col gap-1.5 bg-white p-2 rounded-xl border-2 border-[#02B681] shadow-lg min-w-[150px]">
-                              <div className="flex flex-col gap-1">
-                                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wide">Desde</label>
-                                <input type="time" value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-2 py-1.5 text-sm bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                            <div className="relative z-10 flex flex-col gap-1.5 bg-white p-2 rounded-xl border-2 border-[#02B681] shadow-lg min-w-[170px]">
+                              <div className="text-[11px] font-bold text-zinc-700">Horario</div>
+                              <div className="flex gap-1">
+                                <input type="time" value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="time" value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                               </div>
-                              <div className="flex flex-col gap-1">
-                                <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wide">Hasta</label>
-                                <input type="time" value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-2 py-1.5 text-sm bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                              <div className="flex items-center gap-1 text-[10px] text-zinc-400"><span className="flex-1 h-px bg-zinc-200"/>cortado<span className="flex-1 h-px bg-zinc-200"/></div>
+                              <div className="flex gap-1">
+                                <input type="time" value={editFrom2} onChange={e=>setEditFrom2(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="time" value={editTo2} onChange={e=>setEditTo2(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                               </div>
                               <div className="flex gap-1 pt-1">
                                 <button onClick={handleSave} className="flex-1 bg-[#02B681] text-white rounded-lg text-xs py-2 font-semibold hover:bg-[#02996f]">Guardar</button>
                                 <button onClick={()=>setEditing(null)} className="px-3 border border-zinc-200 bg-white rounded-lg text-xs py-2 hover:bg-zinc-50">×</button>
                               </div>
                               <button onClick={()=>{updateShift(person.id,iso,null); setEditing(null);}} className="w-full bg-red-50 border border-red-200 rounded-lg text-xs py-2 font-bold text-red-600 hover:bg-red-100">Franco</button>
+                              <button onClick={()=>{updateShift(person.id,iso,undefined); setEditing(null);}} className="w-full text-[11px] text-zinc-500 hover:text-zinc-700">Limpiar</button>
                             </div>
                           ) : isFranco ? (
                             <button onClick={()=>openEdit(person.id,iso)} className="w-full h-[56px] sm:h-[68px] rounded-lg bg-red-50 border border-red-200 hover:bg-red-100 text-red-600 text-[11px] sm:text-xs font-bold grid place-items-center">Franco</button>
-                          ) : shift && (shift.from || shift.to) ? (
-                            <div draggable={!isViewerOwn || visiblePeople.length===1} onDragStart={()=>onDragStart(person.id,iso)} onClick={()=>openEdit(person.id,iso)}
-                              className="cursor-grab active:cursor-grabbing select-none bg-[#02B681] text-white rounded-lg px-1 sm:px-2 py-2 sm:py-3.5 text-[11px] sm:text-[13px] font-semibold shadow-sm hover:bg-[#02996f] flex flex-col items-center leading-tight">
-                              <span>{shift.from || "--:--"}</span><span className="opacity-60 text-[9px] sm:text-[10px]">—</span><span>{shift.to || "--:--"}</span>
-                            </div>
-                          ) : (
+                          ) : (()=>{ const n=normalize(shift as Shift); if(!n) return (
                             <button onClick={()=>openEdit(person.id,iso)} draggable={false}
                               className="w-full h-[56px] sm:h-[68px] rounded-lg border border-dashed border-zinc-200 hover:border-[#02B681]/40 hover:bg-[#02B681]/10 text-zinc-400 hover:text-[#02B681] text-xs grid place-items-center font-medium">
                               +
                             </button>
-                          )}
+                          ); return (
+                            <div draggable={!isViewerOwn || visiblePeople.length===1} onDragStart={()=>onDragStart(person.id,iso)} onClick={()=>openEdit(person.id,iso)}
+                              className="cursor-grab active:cursor-grabbing select-none bg-[#02B681] text-white rounded-lg px-1 sm:px-2 py-1.5 sm:py-2 text-[11px] sm:text-[12px] font-semibold shadow-sm hover:bg-[#02996f] flex flex-col items-center leading-tight gap-0.5">
+                              {n.map((s,i)=>(
+                                <div key={i} className="flex items-center gap-1">{s.from || "--:--"}<span className="opacity-60">—</span>{s.to || "--:--"}</div>
+                              ))}
+                              {n.length===2 && <span className="text-[9px] opacity-70 -mt-0.5">cortado</span>}
+                            </div>
+                          );})()}
                         </td>
                       );
                     })}

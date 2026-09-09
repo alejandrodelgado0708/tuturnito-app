@@ -101,13 +101,15 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
                         const hasShift = person.shifts && iso in person.shifts;
                         const shift = hasShift ? person.shifts[iso] : undefined;
                         const isFranco = hasShift && shift === null;
+                        const arr = Array.isArray(shift) ? shift : shift ? [shift] : null;
                         return (
                           <td key={iso} className="p-2.5 border-r border-zinc-100 text-center align-middle h-[88px]">
                             {isFranco ? (
                               <div className="w-full h-[68px] rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs font-bold grid place-items-center">Franco</div>
-                            ) : shift ? (
-                              <div className="bg-[#02B681] text-white rounded-lg px-2 py-3.5 text-[13px] font-semibold flex flex-col items-center leading-tight">
-                                <span>{shift.from}</span><span className="opacity-60 text-[10px]">—</span><span>{shift.to}</span>
+                            ) : arr ? (
+                              <div className="bg-[#02B681] text-white rounded-lg px-2 py-2 text-[12px] font-semibold flex flex-col items-center gap-0.5 leading-tight">
+                                {arr.map((s:any,i:number)=>(<div key={i} className="flex items-center gap-1">{s.from}<span className="opacity-60">—</span>{s.to}</div>))}
+                                {arr.length===2 && <span className="text-[9px] opacity-70 -mt-0.5">cortado</span>}
                               </div>
                             ) : (
                               <div className="w-full h-[68px] rounded-lg border border-dashed border-zinc-200 text-zinc-400 text-xs grid place-items-center">—</div>
