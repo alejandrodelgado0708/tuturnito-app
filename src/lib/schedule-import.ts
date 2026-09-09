@@ -1,6 +1,8 @@
-export type ImportedShift = { from: string; to: string } | { from: string; to: string }[] | null;
+import type { Sector } from "./shift-sectors";
+export type ShiftPart = { from: string; to: string; sector?: Sector };
+export type ImportedShift = ShiftPart | ShiftPart[] | null;
 export type ImportRow = { excelName: string; shifts: Record<string, ImportedShift> };
-export type Word = { text: string; bbox: { x0: number; y0: number; x1: number; y1: number } };
+export type Word = { text: string; sector?: Sector; bbox: { x0: number; y0: number; x1: number; y1: number } };
 export type ImportResult = { rows: ImportRow[]; dates: string[]; warnings: string[] };
 export const nameKey = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/\s+/g, " ");
 const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -8,7 +10,7 @@ const weekdays = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes"
 const isHeader = (s: string) => /^(colaborador(?:es)?|empleados?|nombre(?:s)?)(?:\b|$)/.test(nameKey(s));
 const center = (w: Word) => (w.bbox.x0 + w.bbox.x1) / 2;
 
-export function parseShift(raw: string): ImportedShift | undefined {
+export function parseShift(raw: string, sector?: Sector): ImportedShift | undefined {
   const value = raw.trim().replace(/^[|]+|[|]+$/g, "").trim();
   if (!value || /^[—–-]+$/.test(value)) return undefined;
   if (/^(franco|libre|descanso)$/i.test(value)) return null;
@@ -20,11 +22,11 @@ export function parseShift(raw: string): ImportedShift | undefined {
     const match = part.trim().match(range);
     if (!match) {
       // Preserve textual statuses, but never turn malformed hours into a shift.
-      return /\d/.test(value) ? undefined : { from: value, to: "" };
+      return /\d/.test(value) ? undefined : { from: value, to: "", ...(sector ? { sector } : {}) };
     }
     const [, h1, m1 = "00", h2, m2 = "00"] = match;
     if (+h1 > 23 || +h2 > 24 || +m1 > 59 || +m2 > 59 || (+h2 === 24 && +m2 !== 0)) return undefined;
-    shifts.push({ from: `${h1.padStart(2, "0")}:${m1}`, to: `${h2.padStart(2, "0")}:${m2}` });
+    shifts.push({ from: `${h1.padStart(2, "0")}:${m1}`, to: `${h2.padStart(2, "0")}:${m2}`, ...(sector ? { sector } : {}) });
   }
   return shifts.length === 1 ? shifts[0] : shifts;
 }
@@ -139,8 +141,9 @@ export function parseSchedule(words: Word[], fallbackYear: number, fallbackMonth
         if (!name || !/\p{L}/u.test(name) || /^\d/.test(name) || weekdays.includes(nameKey(name))) continue;
         const shifts: Record<string, ImportedShift> = {};
         columns.forEach((col, index) => {
-          const raw = cells.filter(w => center(w) >= boundaries[index] && center(w) < (boundaries[index + 1] ?? Math.min(right, anchors[index] + gap / 2))).map(w => w.text).join(" ");
-          const shift = parseShift(raw);
+          const cellWords = cells.filter(w => center(w) >= boundaries[index] && center(w) < (boundaries[index + 1] ?? Math.min(right, anchors[index] + gap / 2)));
+          const raw = cellWords.map(w => w.text).join(" ");
+          const shift = parseShift(raw, cellWords.find(w => w.sector)?.sector);
           if (shift !== undefined) shifts[col.date] = shift;
           else if (raw.trim() && !/^[—–-]+$/.test(raw.trim())) warnings.add(`No se pudo interpretar el horario de ${name} el ${col.date}: ${raw}`);
         });

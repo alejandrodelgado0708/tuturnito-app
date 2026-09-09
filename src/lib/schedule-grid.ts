@@ -10,7 +10,8 @@ const gray = (data: Uint8ClampedArray, i: number) => {
 export function detectGrid({ data, width, height }: Pixels): GridCell[][] {
   const xs = new Uint32Array(width), ys = new Uint32Array(height);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    if (gray(data, (y * width + x) * 4) < 160) { xs[x]++; ys[y]++; }
+    const i = (y * width + x) * 4;
+    if (gray(data, i) < 160 && Math.max(data[i], data[i + 1], data[i + 2]) - Math.min(data[i], data[i + 1], data[i + 2]) < 45) { xs[x]++; ys[y]++; }
   }
   const edges = (counts: Uint32Array, span: number) => {
     const lines: { start: number; end: number }[] = [];
@@ -62,14 +63,42 @@ export function prepareGridCell(source: Pixels, cell: GridCell, monochrome: bool
   return { data, width, height };
 }
 
+export function cellSector(source: Pixels, cell: GridCell): Sector | undefined {
+  const counts = new Map<Sector, number>();
+  let total = 0;
+  for (let y = cell.y0 + 1; y < cell.y1 - 1; y += 2) for (let x = cell.x0 + 1; x < cell.x1 - 1; x += 2) {
+    const i = (y * source.width + x) * 4;
+    total++;
+    if (source.data[i + 3] < 200) continue;
+    const sector = sectorFromRgb(source.data[i], source.data[i + 1], source.data[i + 2]);
+    if (sector) counts.set(sector, (counts.get(sector) ?? 0) + 1);
+  }
+  const best = [...counts].sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] > total * 0.45 ? best[0] : undefined;
+}
+
+function splitTextRows(source: Pixels, cell: GridCell): GridCell[] {
+  const bands: { start: number; end: number }[] = [];
+  for (let y = cell.y0; y < cell.y1; y++) {
+    let count = 0;
+    for (let x = cell.x0; x < cell.x1; x++) if (gray(source.data, (y * source.width + x) * 4) < 80) count++;
+    if (count < 2) continue;
+    const last = bands.at(-1);
+    if (last && y - last.end < 4) last.end = y;
+    else bands.push({ start: y, end: y });
+  }
+  if (bands.length < 2) return [cell];
+  return bands.map((band, i) => ({ ...cell, y0: i ? Math.floor((bands[i - 1].end + band.start) / 2) : cell.y0, y1: i + 1 < bands.length ? Math.floor((band.end + bands[i + 1].start) / 2) : cell.y1 }));
+}
+
 export async function readGrid(
   source: Pixels,
   recognize: (pixels: Pixels, numeric: boolean, mode: "6" | "7") => Promise<string>,
-): Promise<{ text: string; bbox: GridCell }[]> {
-  const words: { text: string; bbox: GridCell }[] = [];
+): Promise<Word[]> {
+  const words: Word[] = [];
   for (const row of detectGrid(source)) {
     let dateRow = false;
-    for (const cell of row) {
+    for (const cell of row.flatMap(c => splitTextRows(source, c))) {
       const pixels = prepareGridCell(source, cell, dateRow);
       if (!pixels) continue;
       let text = (await recognize(pixels, dateRow, dateRow ? "7" : "6")).trim();
@@ -80,8 +109,11 @@ export async function readGrid(
         if (label) text = (await recognize(label, false, "6")).trim();
       }
       if (/^fecha\b/i.test(text)) dateRow = true;
-      if (text) words.push({ text, bbox: cell });
+      const sector = cellSector(source, cell);
+      if (text) words.push({ text, bbox: cell, ...(sector ? { sector } : {}) });
     }
   }
   return words;
 }
+import { sectorFromRgb, type Sector } from "./shift-sectors";
+import type { Word } from "./schedule-import";

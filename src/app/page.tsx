@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/client";
 import { nameKey } from "@/lib/schedule-import";
+import { SectorDot, SectorLegend } from "@/components/sector-dot";
 import { readSchedule } from "@/lib/read-schedule";
 
-type Single = { from: string; to: string };
+type Single = { from: string; to: string; sector?: import("@/lib/shift-sectors").Sector };
 type Shift = Single | Single[] | null;
 type Role = "own" | "all";
 type Person = { id: string; name: string; email?: string; role?: Role; shifts: Record<string, Shift>; owner_id?: string };
@@ -26,6 +27,21 @@ function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDat
 function parseISO(s: string) { const [y,m,dd]=s.split("-").map(Number); return new Date(y,m-1,dd); }
 function fmtDate(d: Date) { return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}`; }
 function isWeekend(iso:string){ const d=parseISO(iso); return d.getDay()===0||d.getDay()===6; }
+function formatTimeInput(v:string){
+  const d=v.replace(/\D/g,"").slice(0,4);
+  if(!d) return "";
+  if(d.length<=2) return d;
+  if(d.length===3) return `0${d[0]}:${d.slice(1)}`;
+  return d.slice(0,2)+":"+d.slice(2);
+}
+function blurTime(v:string){
+  if(!v) return "";
+  if(v.includes(":")){
+    const [h,m]=v.split(":");
+    return `${h.padStart(2,"0")}:${(m||"00").padEnd(2,"0").slice(0,2)}`;
+  }
+  return formatTimeInput(v+":00".slice(v.length));
+}
 
 export default function Home(){
   const router = useRouter();
@@ -129,9 +145,11 @@ export default function Home(){
   }
   function handleSave(){
     if(!editing) return;
+    const previous = normalize(people.find(p=>p.id===editing.pid)?.shifts[editing.date]);
+    const sector = Array.isArray(previous) ? previous[0]?.sector : undefined;
     const arr: Single[]=[];
-    if(editFrom || editTo) arr.push({from:editFrom, to:editTo});
-    if(editFrom2 || editTo2) arr.push({from:editFrom2, to:editTo2});
+    if(editFrom || editTo) arr.push({from:editFrom, to:editTo, ...(sector ? {sector} : {})});
+    if(editFrom2 || editTo2) arr.push({from:editFrom2, to:editTo2, ...(sector ? {sector} : {})});
     let v: Shift | undefined;
     if(arr.length===0) v=undefined;
     else if(arr.length===1) v=arr[0];
@@ -377,13 +395,13 @@ export default function Home(){
                             <div className="relative z-10 flex flex-col gap-1.5 bg-white p-2 rounded-xl border-2 border-[#02B681] shadow-lg min-w-[170px]">
                               <div className="text-[11px] font-bold text-zinc-700">Horario</div>
                               <div className="flex gap-1">
-                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
-                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(formatTimeInput(e.target.value))} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(formatTimeInput(e.target.value))} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                               </div>
                               <div className="flex items-center gap-1 text-[10px] text-zinc-400"><span className="flex-1 h-px bg-zinc-200"/>cortado<span className="flex-1 h-px bg-zinc-200"/></div>
                               <div className="flex gap-1">
-                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom2} onChange={e=>setEditFrom2(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
-                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo2} onChange={e=>setEditTo2(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom2} onChange={e=>setEditFrom2(formatTimeInput(e.target.value))} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo2} onChange={e=>setEditTo2(formatTimeInput(e.target.value))} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                               </div>
                               <div className="flex gap-1 pt-1">
                                 <button onClick={handleSave} className="flex-1 bg-[#02B681] text-white rounded-lg text-xs py-2 font-semibold hover:bg-[#02996f]">Guardar</button>
@@ -403,7 +421,7 @@ export default function Home(){
                             <div draggable={!isViewerOwn || visiblePeople.length===1} onDragStart={()=>onDragStart(person.id,iso)} onClick={()=>openEdit(person.id,iso)}
                               className="cursor-grab active:cursor-grabbing select-none bg-[#02B681] text-white rounded-lg px-1 sm:px-2 py-1.5 sm:py-2 text-[11px] sm:text-[12px] font-semibold shadow-sm hover:bg-[#02996f] flex flex-col items-center leading-tight gap-0.5">
                               {n.map((s,i)=>(
-                                <div key={i} className="flex items-center gap-1">{s.from || "--:--"}<span className="opacity-60">—</span>{s.to || "--:--"}</div>
+                                <div key={i} className="flex items-center gap-1"><SectorDot sector={s.sector}/>{s.from || "--:--"}<span className="opacity-60">—</span>{s.to || "--:--"}</div>
                               ))}
                               {n.length===2 && <span className="text-[9px] opacity-70 -mt-0.5">cortado</span>}
                             </div>
@@ -453,11 +471,11 @@ export default function Home(){
                       <div className="text-[11px] font-semibold text-zinc-900">{fmtDate(d)}</div>
                       {editingHere ? (
                         <div className="w-full flex flex-col gap-1">
-                          <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
-                          <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
                           <div className="flex gap-1">
-                            <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom2} onChange={e=>setEditFrom2(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
-                            <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo2} onChange={e=>setEditTo2(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                            <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom2} onChange={e=>setEditFrom2(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                            <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo2} onChange={e=>setEditTo2(formatTimeInput(e.target.value))} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
                           </div>
                           <button onClick={handleSave} className="bg-[#02B681] text-white rounded text-xs py-1 font-semibold">Guardar</button>
                           <button onClick={()=>{updateShift(person.id,iso,null); setEditing(null);}} className="bg-red-50 border border-red-200 text-red-600 rounded text-xs py-1 font-bold">Franco</button>
@@ -467,7 +485,7 @@ export default function Home(){
                         <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-red-100 border-2 border-red-300 text-red-700 text-xs font-extrabold flex items-center justify-center tracking-wide min-h-[48px]">FRANCO</button>
                       ) : n ? (
                         <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-[#02B681] text-white text-[11px] font-semibold flex flex-col items-center justify-center leading-tight p-1">
-                          {n.map((s,i)=>(<span key={i}>{s.from}—{s.to}</span>))}
+                          {n.map((s,i)=>(<span key={i}><SectorDot sector={s.sector}/>{s.from}—{s.to}</span>))}
                           {n.length===2 && <span className="text-[8px] opacity-70">cortado</span>}
                         </button>
                       ) : (
@@ -484,6 +502,7 @@ export default function Home(){
         </>
         )}
 
+        <SectorLegend/>
         <div className="mt-4 grid sm:grid-cols-3 gap-3 text-xs text-zinc-600">
           <div className="bg-white border border-zinc-200 rounded-lg p-3"><b>Importar:</b> Excel, PDF o imagen con mes, fechas y colaboradores. Admite bloques repetidos y turnos como &quot;08:00-16:00&quot;, &quot;8 a 12 / 16 a 20&quot; o &quot;FRANCO&quot;.</div>
           <div className="bg-white border border-zinc-200 rounded-lg p-3"><b>Manual:</b> Invita por email y elige si ve solo su horario o todos.</div>
@@ -562,6 +581,7 @@ export default function Home(){
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
             <div className="px-6 pt-6 pb-3 border-b border-zinc-100">
               <h2 className="text-lg font-bold text-zinc-900">Importar — Asignar horarios</h2>
+              <SectorLegend/>
               <p className="text-sm text-zinc-600 mt-2">Revisá las fechas y los horarios antes de confirmar.</p>
               {importWarnings.length > 0 && <ul className="mt-2 max-h-32 overflow-auto text-sm text-amber-800 list-disc pl-5" role="status">{importWarnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
               <p className="text-sm text-zinc-500 mt-1">Detectadas {importRows.length} personas. Elige a quién derivar cada fila (o No importar).</p>
@@ -589,7 +609,7 @@ export default function Home(){
                       {Object.entries(row.shifts).sort(([a], [b])=>a.localeCompare(b)).map(([date, shift])=>(
                         <div key={date} className="rounded border border-zinc-200 bg-white p-2">
                           <dt className="font-semibold">{date}</dt>
-                          <dd>{shift === null ? "Franco" : (Array.isArray(shift) ? shift : [shift]).map(s=>s.to ? `${s.from}–${s.to}` : s.from).join(" / ")}</dd>
+                          <dd><SectorDot sector={shift === null ? undefined : (Array.isArray(shift) ? shift[0]?.sector : shift.sector)}/>{shift === null ? "Franco" : (Array.isArray(shift) ? shift : [shift]).map(s=>s.to ? `${s.from}–${s.to}` : s.from).join(" / ")}</dd>
                         </div>
                       ))}
                     </dl>
