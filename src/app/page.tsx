@@ -73,10 +73,23 @@ export default function Home(){
     return me?.role==="own";
   },[people,userEmail]);
 
+  async function authHeader(): Promise<Record<string,string>>{
+    try{
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if(session?.access_token) return { Authorization: `Bearer ${session.access_token}` };
+    }catch{}
+    return {};
+  }
+  async function apiFetch(url:string, opts: RequestInit = {}){
+    const h = await authHeader();
+    const headers = { "Content-Type": "application/json", ...(opts.headers as any), ...h } as any;
+    return fetch(url, { ...opts, headers });
+  }
   async function fetchMembers(){
     setLoading(true);
     try{
-      const res = await fetch("/api/members");
+      const res = await apiFetch("/api/members");
       if(res.ok){ const data = await res.json(); setPeople(Array.isArray(data)?data:[]); }
       else { const t=await res.text(); console.error(t); setPeople([]); }
     }catch{ setPeople([]); }
@@ -96,7 +109,7 @@ export default function Home(){
     if(shift===undefined) delete newShifts[date];
     else (newShifts as any)[date]=shift;
     setPeople(p=>p.map(per=> per.id===pid? {...per, shifts:newShifts}:per));
-    await fetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: pid, shifts: newShifts})});
+    await apiFetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: pid, shifts: newShifts})});
   }
   function handleSave(){
     if(!editing) return;
@@ -131,10 +144,10 @@ export default function Home(){
     if(people.some(p=>p.email?.toLowerCase()===e)) return setInviteError("Ese email ya está invitado");
     setInviteSending(true);
     try{
-      const res = await fetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:n, email:e, role:inviteRole})});
+      const res = await apiFetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:n, email:e, role:inviteRole})});
       const j = await res.json().catch(()=>({}));
       if(!res.ok) throw new Error(j.error || "No se pudo crear");
-      const inv = await fetch("/api/invite",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({email:e, name:n, role:inviteRole})});
+      const inv = await apiFetch("/api/invite",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({email:e, name:n, role:inviteRole})});
       const ij = await inv.json().catch(()=>({}));
       if(!inv.ok) console.warn(ij.error);
       await fetchMembers();
@@ -147,12 +160,12 @@ export default function Home(){
 
   async function removePerson(id:string){
     setPeople(p=>p.filter(x=>x.id!==id));
-    await fetch(`/api/members?id=${id}`,{method:"DELETE"});
+    await apiFetch(`/api/members?id=${id}`,{method:"DELETE"});
   }
   async function renamePerson(id:string, name:string){
     const n=name.trim(); if(!n) return;
     setPeople(p=>p.map(x=>x.id===id?{...x,name:n}:x));
-    await fetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id, name:n})});
+    await apiFetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id, name:n})});
   }
 
   function onDragStart(pid:string, date:string){ setDrag({pid,date}); }
@@ -167,7 +180,7 @@ export default function Home(){
     if(drag.pid===targetPid){
       const c={...src.shifts}; c[drag.date]=targetVal; c[targetDate]=moving;
       setPeople(prev=> prev.map(p=> p.id===drag.pid? {...p, shifts:c}:p));
-      await fetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: drag.pid, shifts: {...src.shifts, [drag.date]:targetVal, [targetDate]:moving}})});
+      await apiFetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: drag.pid, shifts: {...src.shifts, [drag.date]:targetVal, [targetDate]:moving}})});
     } else {
       const srcShifts={...src.shifts}; delete (srcShifts as any)[drag.date];
       const dstShifts={...dst.shifts, [targetDate]:moving};
@@ -176,14 +189,133 @@ export default function Home(){
         if(p.id===targetPid) return {...p, shifts: dstShifts};
         return p;
       }));
-      await fetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: drag.pid, shifts: srcShifts})});
-      await fetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: targetPid, shifts: dstShifts})});
+      await apiFetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: drag.pid, shifts: srcShifts})});
+      await apiFetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: targetPid, shifts: dstShifts})});
     }
     setDrag(null);
   }
 
+  function normTime(t:string){
+    let s=t.trim().replace(/[ʵ’ʼʽʻ′´`]/g,":").replace(/\s+/g," ").toLowerCase();
+    s=s.replace(/\s*a\s*/g,"-").replace(/\s*\/\/\s*/g,"/").replace(/\s*\/\s*/g,"/");
+    return s;
+  }
+  function parseCell(raw:string): Shift | null | undefined {
+    const r=raw.trim();
+    if(!r || r==="—" || r==="-") return undefined;
+    const up=r.toUpperCase();
+    if(up==="FRANCO") return null;
+    if(up==="BANFIELD"||up==="PLANTA"||up==="ALSINA"||up==="ALTO AVELLANEDA"||up==="CAPAC."||up==="CAPACITACION"||up==="AUSENTE"||up==="ENF"||up==="SUSPENDIDO"||up==="FULL"||up==="DIA"||up==="DEL"||up==="COMERCIO"||up==="EMPLEADO") return {from:r, to:""} as any;
+    const n=normTime(r);
+    if(n.includes("/")){
+      const parts=n.split("/").map(p=>p.trim()).filter(Boolean);
+      const arr=parts.map(p=>{
+        const [a,b]=p.split("-").map(x=>x.trim());
+        const fa=a.includes(":")?a:(a?`${a.padStart(2,"0")}:00`:"");
+        const fb=b?.includes(":")?b:(b?`${b.padStart(2,"0")}:00`:"");
+        return {from:fa, to:fb};
+      }).filter(x=>x.from||x.to);
+      if(!arr.length) return undefined;
+      return arr.length===1?arr[0]:arr;
+    }
+    if(n.includes("-")){
+      const [a,b]=n.split("-").map(x=>x.trim());
+      const fa=a.includes(":")?a:(a?`${a.padStart(2,"0")}:00`:"");
+      const fb=b?.includes(":")?b:(b?`${b.padStart(2,"0")}:00`:"");
+      if(!fa&&!fb) return undefined;
+      return {from:fa, to:fb};
+    }
+    return {from:r, to:""} as any;
+  }
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>){
     const f=e.target.files?.[0]; if(!f) return;
+    if(f.name.toLowerCase().endsWith(".pdf")){
+      const buf=await f.arrayBuffer();
+      const pdfjs:any = await import("pdfjs-dist");
+      if(pdfjs.GlobalWorkerOptions) try{ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`; }catch{}
+      const pdf=await pdfjs.getDocument({data: buf}).promise;
+      let allRows:{excelName:string, shifts:Record<string,Shift>}[]=[];
+      let allDates:string[]=[];
+      for(let p=1;p<=Math.min(pdf.numPages, 5);p++){
+        const page=await pdf.getPage(p);
+        const txt=await page.getTextContent();
+        const items=(txt.items as any[]).map((it:any)=>({str:it.str, x:it.transform[4], y:it.transform[5]})).filter((it:any)=>it.str.trim());
+        const rowsMap=new Map<number, any[]>();
+        for(const it of items){
+          const y=Math.round(it.y/5)*5;
+          if(!rowsMap.has(y)) rowsMap.set(y, []);
+          rowsMap.get(y)!.push(it);
+        }
+        const rows=[...rowsMap.entries()].sort((a,b)=>b[0]-a[0]).map(([_, v])=> v.sort((a,b)=>a.x-b.x));
+        let headerIdx=-1, dateCols: string[]=[];
+        for(let i=0;i<rows.length;i++){
+          const line=rows[i].map((c:any)=>c.str).join(" ").toUpperCase();
+          if(line.includes("EMPLEADOS")||line.includes("COLABORADOR")||line.includes("NOMBRE")){
+            headerIdx=i;
+            const next=rows[i+1]?.map((c:any)=>c.str).join(" ")||"";
+            const fechaMatch=next.match(/\d+\/\d+/g);
+            if(fechaMatch){
+              dateCols=fechaMatch;
+              allDates=[...new Set([...allDates, ...fechaMatch])];
+            } else {
+              const nums=rows[i].map((c:any)=>c.str).join(" ").match(/\b\d{1,2}\b/g) || [];
+              dateCols=nums.filter((n:string)=>parseInt(n)>=1&&parseInt(n)<=31).slice(0,7);
+            }
+            break;
+          }
+        }
+        if(headerIdx===-1 || !dateCols.length) continue;
+        const headerRow=rows[headerIdx];
+        const headerXs=headerRow.map((c:any)=>c.x);
+        for(let r=headerIdx+2;r<rows.length;r++){
+          const line=rows[r].map((c:any)=>c.str).join(" ").trim();
+          if(!line || line.toUpperCase().includes("EMPLEADOS")||line.toUpperCase().includes("COLABORADOR")||line.toUpperCase().includes("HS.")||line.toUpperCase().includes("SEMANAL")||line.toUpperCase().includes("COLABORADOR")) break;
+          const first=rows[r][0]?.str?.trim();
+          if(!first || first.length<2) continue;
+          if(["LUNES","MARTES","MIERCOLES","JUEVES","VIERNES","SABADO","DOMINGO","FECHA","CONTEO","TM:"].some(k=>line.toUpperCase().startsWith(k))) continue;
+          const name=rows[r].slice(0,2).map((c:any)=>c.str).join(" ").split(/\s{2,}/)[0].trim();
+          if(name.length<2 || /^\d/.test(name)) continue;
+          const cells: string[]=[];
+          for(let ci=1; ci<headerXs.length && ci<=7; ci++){
+            const hx=headerXs[ci];
+            const cand=rows[r].filter((c:any)=>Math.abs(c.x-hx)<60).map((c:any)=>c.str).join(" ").trim();
+            cells.push(cand);
+          }
+          while(cells.length<dateCols.length) cells.push("");
+          const shifts:Record<string,Shift>={};
+          dateCols.forEach((d,i)=>{
+            const raw=cells[i]||"";
+            const parsed=parseCell(raw);
+            if(parsed!==undefined) {
+              const iso=d.includes("/")?(()=>{
+                const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0"));
+                const year=new Date().getFullYear();
+                return `${year}-${mon}-${day}`;
+              })():`2025-09-${d.padStart(2,"0")}`;
+              (shifts as any)[iso]=parsed;
+            }
+          });
+          if(Object.keys(shifts).length) allRows.push({excelName:name.split(" ").slice(0,2).join(" "), shifts});
+        }
+      }
+      if(!allRows.length){ alert("No se detectaron tablas en el PDF. Probá con el Excel original."); e.target.value=""; return; }
+      const merged=new Map<string, {excelName:string, shifts:Record<string,Shift>}>();
+      for(const r of allRows){
+        const key=r.excelName.toLowerCase();
+        if(!merged.has(key)) merged.set(key, {excelName:r.excelName, shifts:{}});
+        Object.assign(merged.get(key)!.shifts, r.shifts);
+      }
+      const rows=[...merged.values()].map(r=>{
+        const match=people.find(p=>p.name.toLowerCase()===r.excelName.toLowerCase());
+        return {excelName:r.excelName, shifts:r.shifts, targetId: match?match.id:"new"};
+      });
+      setImportRows(rows);
+      const uniq=[...new Set(rows.flatMap(r=>Object.keys(r.shifts)))].sort();
+      setImportDates(uniq);
+      setImportOpen(true);
+      e.target.value="";
+      return;
+    }
     const reader=new FileReader();
     reader.onload = (ev)=>{
       const data=ev.target?.result;
@@ -204,19 +336,8 @@ export default function Home(){
         const shifts:Record<string,Shift>={};
         dateCols.forEach((_,i)=>{
           const raw=String(r[i+1]??"").trim();
-          if(!raw || raw.toLowerCase()==="franco" || raw.toLowerCase()==="libre" || raw==="-" || raw==="—") shifts[parsedDates[i]]=null;
-          else if(raw.includes("/")){
-            const parts=raw.split("/").map(s=>s.trim()).filter(Boolean);
-            const arr=parts.map(p=>{
-              const [a,b]=p.split("-").map(s=>s.trim());
-              return {from:a||"", to:b||""};
-            }).filter(x=>x.from||x.to);
-            shifts[parsedDates[i]]= arr.length===1?arr[0]:arr;
-          }
-          else if(raw.includes("-")){
-            const [a,b]=raw.split("-").map(s=>s.trim());
-            shifts[parsedDates[i]]={from:a,to:b};
-          } else shifts[parsedDates[i]]={from:raw,to:""};
+          const p=parseCell(raw);
+          if(p!==undefined) (shifts as any)[parsedDates[i]]=p;
         });
         const excelName=String(r[0]).trim();
         const match = people.find(p=>p.name.toLowerCase()===excelName.toLowerCase() || p.email?.toLowerCase()===excelName.toLowerCase());
@@ -234,12 +355,12 @@ export default function Home(){
     for(const row of importRows){
       if(row.targetId==="new"){
         const email = `${row.excelName.toLowerCase().replace(/\s+/g,".")}@import.local`;
-        await fetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: row.excelName, email, role:"own", shifts: row.shifts})});
+        await apiFetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: row.excelName, email, role:"own", shifts: row.shifts})});
       } else {
         const person = people.find(p=>p.id===row.targetId);
         if(!person) continue;
         const merged = {...person.shifts, ...row.shifts};
-        await fetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: row.targetId, shifts: merged})});
+        await apiFetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: row.targetId, shifts: merged})});
       }
     }
     setImportLoading(false);
@@ -280,8 +401,8 @@ export default function Home(){
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={downloadTemplate} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-700">Plantilla</button>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleImport} className="hidden"/>
-            <button onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-zinc-900 text-white border border-zinc-900 hover:bg-zinc-800 font-medium">Importar Excel</button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf" onChange={handleImport} className="hidden"/>
+            <button onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-zinc-900 text-white border border-zinc-900 hover:bg-zinc-800 font-medium">Importar Excel/PDF</button>
             <button onClick={handleExport} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-[#02B681] text-white hover:bg-[#02996f] font-medium">Exportar</button>
             {userEmail && <span className="hidden lg:inline text-xs text-zinc-500 max-w-[150px] truncate">{userEmail}</span>}
             <button onClick={async()=>{ const s=createClient(); await s.auth.signOut(); router.push("/login"); }} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200">Salir</button>

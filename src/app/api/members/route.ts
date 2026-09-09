@@ -9,17 +9,25 @@ function service() {
   return createClient(url, key);
 }
 
-async function getUser() {
+async function getUser(req?: Request) {
   const cookieStore = await cookies();
   const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     cookies: { getAll() { return cookieStore.getAll(); }, setAll() {} },
   });
-  const { data } = await supabase.auth.getUser();
-  return data.user;
+  let { data: { user } } = await supabase.auth.getUser();
+  if (!user && req) {
+    const auth = req.headers.get("authorization");
+    const token = auth?.replace("Bearer ", "");
+    if (token) {
+      const { data: d2 } = await supabase.auth.getUser(token);
+      user = d2.user;
+    }
+  }
+  return user;
 }
 
-export async function GET() {
-  const user = await getUser();
+export async function GET(req: Request) {
+  const user = await getUser(req);
   if (!user) return NextResponse.json({ error: "No auth" }, { status: 401 });
   const svc = service();
   const email = user.email?.toLowerCase() || "";
@@ -42,7 +50,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const user = await getUser();
+  const user = await getUser(req);
   if (!user) return NextResponse.json({ error: "No auth" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const { name, email, role, shifts } = body;
@@ -54,7 +62,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const user = await getUser();
+  const user = await getUser(req);
   if (!user) return NextResponse.json({ error: "No auth" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const { id, name, shifts } = body;
@@ -69,7 +77,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const user = await getUser();
+  const user = await getUser(req);
   if (!user) return NextResponse.json({ error: "No auth" }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");

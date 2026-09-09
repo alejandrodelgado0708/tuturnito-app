@@ -18,7 +18,7 @@ export async function middleware(request: NextRequest) {
   );
   const { data: { user } } = await supabase.auth.getUser();
   const pathname = request.nextUrl.pathname;
-  if (pathname === "/health" || pathname.startsWith("/health/") || pathname.startsWith("/share")) return supabaseResponse;
+  if (pathname.startsWith("/api/") || pathname === "/health" || pathname.startsWith("/health/") || pathname.startsWith("/share")) return supabaseResponse;
   const isAuth = pathname.startsWith("/login") || pathname.startsWith("/register") || pathname.startsWith("/forgot-password") || pathname.startsWith("/reset-password") || pathname.startsWith("/auth");
   if (!user && !isAuth) return NextResponse.redirect(new URL("/login", request.url));
   if (user && isAuth && !pathname.startsWith("/auth")) return NextResponse.redirect(new URL("/", request.url));
