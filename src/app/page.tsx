@@ -86,10 +86,21 @@ export default function Home(){
     }catch{}
     return {};
   }
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   async function apiFetch(url:string, opts: RequestInit = {}){
     const h = await authHeader();
     const headers = { "Content-Type": "application/json", ...(opts.headers as any), ...h } as any;
     return fetch(url, { ...opts, headers });
+  }
+  async function copyLink(person: Person){
+    try{
+      const res=await apiFetch(`/api/share-link?id=${person.id}`);
+      const j=await res.json();
+      if(!res.ok) throw new Error(j.error||"Error");
+      await navigator.clipboard.writeText(j.link);
+      setCopiedId(person.id);
+      setTimeout(()=>setCopiedId(null), 2000);
+    }catch(e:any){ alert(e.message); }
   }
   async function fetchMembers(){
     setLoading(true);
@@ -349,6 +360,7 @@ export default function Home(){
                           {person.email && <div className="text-[10px] sm:text-[11px] text-zinc-500 px-1 sm:px-1.5 truncate">{person.email}</div>}
                           {person.role && <span className={`inline-block ml-1 sm:ml-1.5 mt-1 text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-full border font-medium ${person.role==="all"?"bg-[#02B681]/10 text-[#02B681] border-[#02B681]/20":"bg-zinc-100 text-zinc-600 border-zinc-200"}`}>{person.role==="all"?"Ve todos":"Solo su horario"}</span>}
                         </div>
+                        <button onClick={()=>copyLink(person)} title="Copiar link sin registro" className={`shrink-0 p-1.5 rounded-lg border text-xs ${copiedId===person.id?"bg-green-100 border-green-300 text-green-700":"bg-white border-zinc-200 text-zinc-500 hover:bg-zinc-50"} hidden sm:inline-flex`}>{copiedId===person.id?"✓":"🔗"}</button>
                         {!isViewerOwn && <button onClick={()=>removePerson(person.id)} className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-red-600 px-1 shrink-0">×</button>}
                       </div>
                     </td>
@@ -423,6 +435,7 @@ export default function Home(){
                   <div className="text-sm font-semibold text-zinc-900 truncate">{person.name}</div>
                   <div className="text-[11px] text-zinc-500 truncate">{person.email}</div>
                 </div>
+                <button onClick={()=>copyLink(person)} className={`p-1.5 rounded-lg border text-xs ${copiedId===person.id?"bg-green-100 border-green-300 text-green-700":"bg-white border-zinc-200 text-zinc-500"}`}>{copiedId===person.id?"✓":"🔗"}</button>
                 {!isViewerOwn && <button onClick={()=>removePerson(person.id)} className="text-zinc-400 px-2">×</button>}
               </div>
               <div className="p-2 grid grid-cols-3 gap-2">
