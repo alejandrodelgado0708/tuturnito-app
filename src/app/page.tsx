@@ -292,7 +292,7 @@ export default function Home(){
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={downloadTemplate} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-700">Plantilla</button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png,.webp" onChange={handleImport} className="hidden"/>
-            <button disabled={importReading} onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-zinc-900 text-white border border-zinc-900 hover:bg-zinc-800 font-medium">{importReading ? "Leyendo documento..." : "Importar Excel/PDF/Imagen"}</button>
+            <button disabled={importReading} onClick={()=>fileRef.current?.click()} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 font-medium">{importReading ? "Leyendo documento..." : "Importar Excel/PDF/Imagen"}</button>
             <button onClick={handleExport} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-[#02B681] text-white hover:bg-[#02996f] font-medium">Exportar</button>
             {userEmail && <span className="hidden lg:inline text-xs text-zinc-500 max-w-[150px] truncate">{userEmail}</span>}
             <button onClick={async()=>{ const s=createClient(); await s.auth.signOut(); router.push("/login"); }} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200">Salir</button>
@@ -544,7 +544,7 @@ export default function Home(){
             <div className="px-6 py-4">
               <div className="flex gap-2">
                 <input readOnly value={inviteLink} className="flex-1 border border-zinc-200 rounded-lg px-3 py-2.5 text-xs bg-zinc-50 text-zinc-700 focus:outline-none"/>
-                <button onClick={async()=>{ await navigator.clipboard.writeText(inviteLink); setCopied(true); setTimeout(()=>setCopied(false),2000); }} className={`px-4 py-2 rounded-lg text-sm font-semibold shrink-0 ${copied?"bg-green-600 text-white":"bg-zinc-900 text-white hover:bg-zinc-800"}`}>{copied?"Copiado!":"Copiar"}</button>
+                <button onClick={async()=>{ await navigator.clipboard.writeText(inviteLink); setCopied(true); setTimeout(()=>setCopied(false),2000); }} className={`px-4 py-2 rounded-lg text-sm font-semibold shrink-0 ${copied?"bg-green-600 text-white":"bg-[#02B681] text-white hover:bg-[#02996f]"}`}>{copied?"Copiado!":"Copiar"}</button>
               </div>
               <div className="mt-3 flex gap-2">
                 <a href={inviteLink} target="_blank" className="flex-1 text-center px-4 py-2 rounded-lg border border-zinc-200 bg-white text-sm hover:bg-zinc-50">Abrir link</a>
@@ -599,7 +599,7 @@ export default function Home(){
             </div>
             <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex gap-2 justify-end">
               <button onClick={()=>setImportOpen(false)} className="px-4 py-2 rounded-lg border border-zinc-200 bg-white text-sm">Cancelar</button>
-              <button onClick={confirmImport} disabled={importLoading} className="px-5 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 disabled:opacity-50">{importLoading?"Importando...":"Confirmar ("+importRows.filter(r=>r.targetId!=="skip").length+")"}</button>
+              <button onClick={confirmImport} disabled={importLoading} className="px-5 py-2 rounded-lg bg-[#02B681] text-white text-sm font-semibold hover:bg-[#02996f] disabled:opacity-50">{importLoading?"Importando...":"Confirmar ("+importRows.filter(r=>r.targetId!=="skip").length+")"}</button>
             </div>
           </div>
         </div>
@@ -615,7 +615,7 @@ export default function Home(){
               <p className="text-xs text-zinc-500 mt-3">Tip: recortá solo la tabla (sin bordes blancos), con buena luz y sin inclinación. También podés subir el Excel original si lo tenés.</p>
             </div>
             <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex justify-end gap-2">
-              <button onClick={()=>setImportErrorMsg(null)} className="px-5 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold">Entendido</button>
+              <button onClick={()=>setImportErrorMsg(null)} className="px-5 py-2 rounded-lg bg-[#02B681] text-white text-sm font-semibold">Entendido</button>
               <label className="px-5 py-2 rounded-lg border border-zinc-200 bg-white text-sm font-semibold cursor-pointer">Reintentar<input type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden" onChange={(e)=>{ setImportErrorMsg(null); handleImport(e as any); }} /></label>
             </div>
           </div>
