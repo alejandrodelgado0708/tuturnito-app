@@ -229,17 +229,75 @@ export default function Home(){
   }
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>){
     const f=e.target.files?.[0]; if(!f) return;
-    if(f.name.toLowerCase().endsWith(".pdf")){
+    if(f.name.toLowerCase().endsWith(".pdf") || f.type==="application/pdf"){
       const buf=await f.arrayBuffer();
+      const tryOcrIfNeeded = async (pdf:any, hasText:boolean) => {
+        if(hasText) return null;
+        try{
+          const Tesseract:any = await import("tesseract.js");
+          let fullText="";
+          for(let p=1;p<=Math.min(pdf.numPages,3);p++){
+            const page=await pdf.getPage(p);
+            const viewport=page.getViewport({scale:2});
+            const canvas=document.createElement("canvas");
+            canvas.width=viewport.width; canvas.height=viewport.height;
+            const ctx=canvas.getContext("2d")!;
+            await page.render({canvasContext:ctx, viewport}).promise;
+            const {data:{text}} = await Tesseract.recognize(canvas, "spa", { logger:()=>{} });
+            fullText+= "\n"+text;
+          }
+          return fullText;
+        }catch{ return null; }
+      };
       const pdfjs:any = await import("pdfjs-dist");
       if(pdfjs.GlobalWorkerOptions) try{ pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`; }catch{}
       const pdf=await pdfjs.getDocument({data: buf}).promise;
       let allRows:{excelName:string, shifts:Record<string,Shift>}[]=[];
       let allDates:string[]=[];
+      let isImagePdf=false;
       for(let p=1;p<=Math.min(pdf.numPages, 5);p++){
         const page=await pdf.getPage(p);
         const txt=await page.getTextContent();
         const items=(txt.items as any[]).map((it:any)=>({str:it.str, x:it.transform[4], y:it.transform[5]})).filter((it:any)=>it.str.trim());
+        if(items.length<15){
+          isImagePdf=true;
+          const ocrText=await tryOcrIfNeeded(pdf, false);
+          if(ocrText){
+            const lines=ocrText.split("\n").map((l:string)=>l.trim()).filter(Boolean);
+            let dateCols:string[]=[];
+            for(const l of lines){
+              if(l.toUpperCase().includes("EMPLEADOS")||l.toUpperCase().includes("COLABORADOR")){
+                const m=l.match(/\d+\/\d+/g);
+                if(m) dateCols=m;
+                break;
+              }
+            }
+            if(!dateCols.length) dateCols=Array.from({length:7},(_,i)=>`${i+1}/9`);
+            for(const line of lines){
+              if(!line || line.toUpperCase().includes("EMPLEADOS")||line.toUpperCase().includes("FECHA")) continue;
+              const parts=line.split(/\s{2,}|\t/);
+              if(parts.length<2) continue;
+              const name=parts[0].trim();
+              if(name.length<3 || /^\d/.test(name) || ["LUNES","MARTES","COLABORADORES"].some(k=>name.toUpperCase().includes(k))) continue;
+              const cells=parts.slice(1);
+              const shifts:Record<string,Shift>={};
+              dateCols.slice(0,7).forEach((d,i)=>{
+                const raw=cells[i]||"";
+                const parsed=parseCell(raw);
+                if(parsed!==undefined){
+                  const iso=(()=>{
+                    const [day,mon]=d.split("/").map((x:string)=>x.padStart(2,"0"));
+                    const year=new Date().getFullYear();
+                    return `${year}-${mon}-${day}`;
+                  })();
+                  (shifts as any)[iso]=parsed;
+                }
+              });
+              if(Object.keys(shifts).length) allRows.push({excelName:name.split(" ").slice(0,2).join(" "), shifts});
+            }
+            break;
+          }
+        }
         const rowsMap=new Map<number, any[]>();
         for(const it of items){
           const y=Math.round(it.y/5)*5;
