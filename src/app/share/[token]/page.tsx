@@ -67,9 +67,10 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
         {members.length === 0 ? (
           <div className="bg-white border border-zinc-200 rounded-xl p-12 text-center text-sm text-zinc-500">El tablero aún no tiene miembros o no tienes permiso para verlos.</div>
         ) : (
-          <div className="bg-white sm:rounded-xl border-y sm:border border-zinc-200 overflow-hidden shadow-sm -mx-2 sm:mx-0">
-            <div className="overflow-auto overscroll-x-contain touch-pan-x">
-              <table className="w-full text-[13px] sm:text-[15px] border-collapse min-w-[640px] sm:min-w-[900px]">
+          <>
+          <div className="hidden sm:block bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
+            <div className="overflow-auto">
+              <table className="w-full text-[15px] border-collapse min-w-[900px]">
                 <thead>
                   <tr className="bg-zinc-50 border-b border-zinc-200">
                     <th className="sticky left-0 z-10 bg-zinc-50 text-left p-3.5 font-semibold text-zinc-700 min-w-[220px] border-r border-zinc-200 text-[14px]">Persona</th>
@@ -123,6 +124,36 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
               </table>
             </div>
           </div>
+          <div className="sm:hidden space-y-3">
+            {members.map((person:any)=>(
+              <div key={person.id} className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
+                <div className="px-3 py-2.5 border-b border-zinc-100 flex items-center gap-2 bg-zinc-50/50">
+                  <div className="h-8 w-8 rounded-full bg-[#02B681]/15 text-[#02B681] grid place-items-center font-bold text-xs">{person.name.slice(0,2).toUpperCase()}</div>
+                  <div className="min-w-0"><div className="text-sm font-semibold text-zinc-900 truncate">{person.name}</div><div className="text-[11px] text-zinc-500 truncate">{person.email}</div></div>
+                </div>
+                <div className="p-2 grid grid-cols-3 gap-2">
+                  {dates.map((iso:string)=>{
+                    const hasShift = person.shifts && iso in person.shifts;
+                    const shift = hasShift ? person.shifts[iso] : undefined;
+                    const isFranco = hasShift && shift === null;
+                    const arr = Array.isArray(shift) ? shift : shift ? [shift] : null;
+                    const d=parseISO(iso);
+                    const isWE=d.getDay()===0||d.getDay()===6;
+                    return (
+                      <div key={iso} className={`rounded-lg border p-1.5 flex flex-col items-center gap-1 min-h-[86px] ${isWE?"bg-[#02B681]/5 border-[#02B681]/20":"bg-white border-zinc-200"}`}>
+                        <div className={`text-[10px] font-bold ${isWE?"text-[#02B681]":"text-zinc-500"}`}>{DAY_NAMES[d.getDay()]}</div>
+                        <div className="text-[11px] font-semibold text-zinc-900">{fmtDate(d)}</div>
+                        {isFranco ? <div className="w-full flex-1 rounded bg-red-50 border border-red-200 text-red-600 text-xs font-bold grid place-items-center">Franco</div>
+                        : arr ? <div className="w-full flex-1 rounded bg-[#02B681] text-white text-[11px] font-semibold flex flex-col items-center justify-center leading-tight p-1">{arr.map((s:any,i:number)=>(<span key={i}>{s.from}—{s.to}</span>))}{arr.length===2 && <span className="text-[8px] opacity-70">cortado</span>}</div>
+                        : <div className="w-full flex-1 rounded border border-dashed border-zinc-300 text-zinc-400 text-xs grid place-items-center">—</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          </>
         )}
       </div>
       <footer className="py-4 text-center text-xs text-zinc-400">TuTurnito · acceso sin cuenta</footer>

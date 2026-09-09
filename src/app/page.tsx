@@ -291,9 +291,10 @@ export default function Home(){
 
       <div className="mx-auto w-full max-w-[1600px] px-2 sm:px-6 pb-8 flex-1">
         {loading ? <div className="p-12 text-center text-zinc-500">Cargando tablero...</div> : (
-        <div className="bg-white sm:rounded-xl border-y sm:border border-zinc-200 overflow-hidden shadow-sm -mx-2 sm:mx-0">
-          <div className="overflow-auto overscroll-x-contain touch-pan-x scrollbar-thin">
-            <table className="w-full text-[13px] sm:text-[15px] border-collapse min-w-[640px] sm:min-w-[900px]">
+        <>
+        <div className="hidden sm:block bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
+          <div className="overflow-auto">
+            <table className="w-full text-[15px] border-collapse min-w-[900px]">
               <thead>
                 <tr className="bg-zinc-50 border-b border-zinc-200">
                   <th className="sticky left-0 z-10 bg-zinc-50 text-left p-2 sm:p-3.5 font-semibold text-zinc-700 min-w-[140px] sm:min-w-[220px] border-r border-zinc-200 text-[12px] sm:text-[14px]">Persona</th>
@@ -386,6 +387,62 @@ export default function Home(){
             <span className="ml-auto">Arrastra un turno a otra celda para moverlo · Clic para editar horas</span>
           </div>
         </div>
+
+        <div className="sm:hidden space-y-3">
+          {visiblePeople.map(person=>(
+            <div key={person.id} className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
+              <div className="px-3 py-2.5 border-b border-zinc-100 flex items-center gap-2 bg-zinc-50/50">
+                <div className="h-8 w-8 rounded-full bg-[#02B681]/15 text-[#02B681] grid place-items-center font-bold text-xs">{person.name.slice(0,2).toUpperCase()}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-zinc-900 truncate">{person.name}</div>
+                  <div className="text-[11px] text-zinc-500 truncate">{person.email}</div>
+                </div>
+                {!isViewerOwn && <button onClick={()=>removePerson(person.id)} className="text-zinc-400 px-2">×</button>}
+              </div>
+              <div className="p-2 grid grid-cols-3 gap-2">
+                {dates.map(iso=>{
+                  const hasShift = iso in person.shifts;
+                  const shift = hasShift ? person.shifts[iso] : undefined;
+                  const isFranco = hasShift && shift === null;
+                  const n = normalize(shift as Shift);
+                  const d=parseISO(iso);
+                  const isWE=d.getDay()===0||d.getDay()===6;
+                  const editingHere=editing?.pid===person.id && editing?.date===iso;
+                  return (
+                    <div key={iso} className={`rounded-lg border p-1.5 flex flex-col items-center gap-1 min-h-[86px] ${isWE?"bg-[#02B681]/5 border-[#02B681]/20":"bg-white border-zinc-200"} ${editingHere?"ring-2 ring-[#02B681]":""}`}>
+                      <div className={`text-[10px] font-bold ${isWE?"text-[#02B681]":"text-zinc-500"}`}>{DAY_NAMES[d.getDay()]}</div>
+                      <div className="text-[11px] font-semibold text-zinc-900">{fmtDate(d)}</div>
+                      {editingHere ? (
+                        <div className="w-full flex flex-col gap-1">
+                          <input type="time" value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          <input type="time" value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          <div className="flex gap-1">
+                            <input type="time" value={editFrom2} onChange={e=>setEditFrom2(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                            <input type="time" value={editTo2} onChange={e=>setEditTo2(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          </div>
+                          <button onClick={handleSave} className="bg-[#02B681] text-white rounded text-xs py-1 font-semibold">Guardar</button>
+                          <button onClick={()=>{updateShift(person.id,iso,null); setEditing(null);}} className="bg-red-50 border border-red-200 text-red-600 rounded text-xs py-1 font-bold">Franco</button>
+                          <button onClick={()=>setEditing(null)} className="text-xs text-zinc-500">×</button>
+                        </div>
+                      ) : isFranco ? (
+                        <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-red-50 border border-red-200 text-red-600 text-xs font-bold grid place-items-center">Franco</button>
+                      ) : n ? (
+                        <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-[#02B681] text-white text-[11px] font-semibold flex flex-col items-center justify-center leading-tight p-1">
+                          {n.map((s,i)=>(<span key={i}>{s.from}—{s.to}</span>))}
+                          {n.length===2 && <span className="text-[8px] opacity-70">cortado</span>}
+                        </button>
+                      ) : (
+                        <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded border border-dashed border-zinc-300 text-zinc-400 text-xs grid place-items-center">+</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {visiblePeople.length===0 && <div className="bg-white border border-zinc-200 rounded-xl p-8 text-center text-sm text-zinc-500">Sin personas. Agrega una invitación.</div>}
+        </div>
+        </>
         )}
 
         <div className="mt-4 grid sm:grid-cols-3 gap-3 text-xs text-zinc-600">
