@@ -250,9 +250,23 @@ export default function Home(){
         URL.revokeObjectURL(url);
         return canvas;
       };
-      const canvas=await preprocess(f);
-      const Tesseract:any = await import("tesseract.js");
-      const {data} = await Tesseract.recognize(canvas, "spa", { logger:()=>{}, tessedit_pageseg_mode: 6 } as any);
+      const tryOcr = async (cvs:HTMLCanvasElement, psm:number=6) => {
+        const Tesseract:any = await import("tesseract.js");
+        const {data} = await Tesseract.recognize(cvs, "spa", { logger:()=>{}, tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" } as any);
+        return data;
+      };
+      let canvas=await preprocess(f);
+      let data=(await tryOcr(canvas, 6)) as any;
+      let text: string = data.text || "";
+      let words: any[] = data.words || [];
+      if(text.toUpperCase().replace(/[^A-Z]/g,"").includes("COLABORADOR".replace(/A/g,""))===false && !text.toUpperCase().includes("COLABOR")){
+        const canvas2=await preprocess(f);
+        const ctx2=canvas2.getContext("2d")!;
+        ctx2.filter="contrast(1.6) brightness(1.1)";
+        ctx2.drawImage(canvas,0,0);
+        const d2=(await tryOcr(canvas2, 11)) as any;
+        if((d2.text||"").length>text.length) { text=d2.text; words=d2.words; }
+      }
       const text: string = data.text || "";
       const words: any[] = data.words || [];
       let dateCols:string[]=[];
@@ -279,7 +293,7 @@ export default function Home(){
         const tables:{headerIdx:number, headerXs:number[]}[]=[];
         for(let i=0;i<sortedRows.length;i++){
           const line=sortedRows[i].map((w:any)=>w.text).join(" ").toUpperCase();
-          if(line.includes("COLABORADOR")||line.includes("EMPLEADOS")){
+          if(line.includes("COLABOR")||line.includes("EMPLEA")||line.includes("NOMBRE")){
             tables.push({headerIdx:i, headerXs:sortedRows[i].map((w:any)=>w.bbox.x0)});
           }
         }
@@ -890,13 +904,15 @@ export default function Home(){
       {importErrorMsg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div onClick={()=>setImportErrorMsg(null)} className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md border border-zinc-200 overflow-hidden">
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
             <div className="px-6 pt-6 pb-2">
               <h2 className="text-lg font-bold text-zinc-900">No se pudo leer</h2>
               <p className="text-sm text-zinc-600 mt-2 whitespace-pre-wrap leading-relaxed">{importErrorMsg}</p>
+              <p className="text-xs text-zinc-500 mt-3">Tip: recortá solo la tabla (sin bordes blancos), con buena luz y sin inclinación. También podés subir el Excel original si lo tenés.</p>
             </div>
             <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex justify-end gap-2">
               <button onClick={()=>setImportErrorMsg(null)} className="px-5 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold">Entendido</button>
+              <label className="px-5 py-2 rounded-lg border border-zinc-200 bg-white text-sm font-semibold cursor-pointer">Reintentar<input type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden" onChange={(e)=>{ setImportErrorMsg(null); handleImport(e as any); }} /></label>
             </div>
           </div>
         </div>
