@@ -12,6 +12,7 @@ const center = (w: Word) => (w.bbox.x0 + w.bbox.x1) / 2;
 
 export function parseShift(raw: string, sector?: Sector): ImportedShift | undefined {
   const value = raw.trim().replace(/^[|]+|[|]+$/g, "").trim();
+  if (value === "[ilegible]") return undefined;
   if (!value || /^[—–-]+$/.test(value)) return undefined;
   if (/^(franco|libre|descanso)$/i.test(value)) return null;
   const normalized = value.replace(/[–—]/g, "-").replace(/[.,'’´](?=\d{2}\b)/g, ":");

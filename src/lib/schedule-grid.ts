@@ -1,3 +1,5 @@
+import { sectorFromRgb, type Sector } from "./shift-sectors";
+import { parseShift, type Word } from "./schedule-import";
 export type Pixels = { data: Uint8ClampedArray; width: number; height: number };
 export type GridCell = { x0: number; y0: number; x1: number; y1: number };
 
@@ -11,7 +13,8 @@ export function detectGrid({ data, width, height }: Pixels): GridCell[][] {
   const xs = new Uint32Array(width), ys = new Uint32Array(height);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const i = (y * width + x) * 4;
-    if (gray(data, i) < 160 && Math.max(data[i], data[i + 1], data[i + 2]) - Math.min(data[i], data[i + 1], data[i + 2]) < 45) { xs[x]++; ys[y]++; }
+    const max = Math.max(data[i], data[i + 1], data[i + 2]);
+    if (max < 135 || (gray(data, i) < 160 && max - Math.min(data[i], data[i + 1], data[i + 2]) < 45)) { xs[x]++; ys[y]++; }
   }
   const edges = (counts: Uint32Array, span: number) => {
     const lines: { start: number; end: number }[] = [];
@@ -34,7 +37,10 @@ export function detectGrid({ data, width, height }: Pixels): GridCell[][] {
 }
 
 /** Tight text bounds, generous white padding and deterministic bilinear scaling. */
-export function prepareGridCell(source: Pixels, cell: GridCell, monochrome: boolean): Pixels | undefined {
+export function prepareGridCell(source: Pixels, cell: GridCell, monochrome: boolean, removeFill = false): Pixels | undefined {
+  const histogram = new Uint32Array(256);
+  if (removeFill) for (let y = cell.y0; y < cell.y1; y++) for (let x = cell.x0; x < cell.x1; x++) histogram[Math.round(gray(source.data, (y * source.width + x) * 4))]++;
+  const background = removeFill ? histogram.indexOf(Math.max(...histogram)) : 180;
   let left = cell.x1, right = cell.x0, top = cell.y1, bottom = cell.y0;
   for (let y = cell.y0; y < cell.y1; y++) for (let x = cell.x0; x < cell.x1; x++) {
     if (gray(source.data, (y * source.width + x) * 4) < 110) {
@@ -56,7 +62,7 @@ export function prepareGridCell(source: Pixels, cell: GridCell, monochrome: bool
     const offsets = [y0 * source.width + x0, y0 * source.width + Math.min(right, x0 + 1), Math.min(bottom, y0 + 1) * source.width + x0, Math.min(bottom, y0 + 1) * source.width + Math.min(right, x0 + 1)];
     const weights = [(1 - dx) * (1 - dy), dx * (1 - dy), (1 - dx) * dy, dx * dy];
     for (let c = 0; c < 3; c++) {
-      const value = offsets.reduce((sum, pixel, j) => sum + weights[j] * (monochrome ? Math.max(0, Math.min(255, (gray(source.data, pixel * 4) - 30) * 255 / 150)) : source.data[pixel * 4 + c]), 0);
+      const value = offsets.reduce((sum, pixel, j) => sum + weights[j] * (monochrome ? Math.max(0, Math.min(255, (gray(source.data, pixel * 4) - 30) * 255 / Math.max(40, background - 30))) : source.data[pixel * 4 + c]), 0);
       data[(y * width + x) * 4 + c] = value;
     }
   }
@@ -93,7 +99,7 @@ function splitTextRows(source: Pixels, cell: GridCell): GridCell[] {
 
 export async function readGrid(
   source: Pixels,
-  recognize: (pixels: Pixels, numeric: boolean, mode: "6" | "7") => Promise<string>,
+  recognize: (pixels: Pixels, numeric: boolean, mode: "6" | "7", whitelist?: string) => Promise<string>,
 ): Promise<Word[]> {
   const words: Word[] = [];
   for (const row of detectGrid(source)) {
@@ -108,12 +114,23 @@ export async function readGrid(
         const label = prepareGridCell(source, cell, false);
         if (label) text = (await recognize(label, false, "6")).trim();
       }
+      if (!dateRow && /\d/.test(text) && parseShift(text) === undefined) {
+        const retry = (await recognize(pixels, false, "6", "0123456789aA:/- ")).trim();
+        if (/\d/.test(retry) && parseShift(retry) !== undefined) text = retry;
+      }
+      if (!dateRow && (!text || (/\d/.test(text) && parseShift(text) === undefined))) {
+        const contrast = prepareGridCell(source, cell, true, true);
+        if (contrast) {
+          for (const [image, mode] of [[contrast, "7"], [contrast, "6"], [pixels, "7"]] as const) {
+            const retry = (await recognize(image, false, mode)).trim();
+            if (retry && parseShift(retry) !== undefined) { text = retry; break; }
+          }
+        }
+      }
       if (/^fecha\b/i.test(text)) dateRow = true;
       const sector = cellSector(source, cell);
-      if (text) words.push({ text, bbox: cell, ...(sector ? { sector } : {}) });
+      words.push({ text: text || "[ilegible]", bbox: cell, ...(sector ? { sector } : {}) });
     }
   }
   return words;
 }
-import { sectorFromRgb, type Sector } from "./shift-sectors";
-import type { Word } from "./schedule-import";

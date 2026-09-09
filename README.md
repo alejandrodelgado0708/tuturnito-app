@@ -21,7 +21,11 @@ La lectura de imágenes depende de su resolución y alineación. En capturas con
 
 Pruebas del importador: `npm run test:import`. Comprobación de tipos: `npx tsc --noEmit`.
 
+Los turnos cortados como `9 a 16/18 a 20` se guardan en dos tramos. El color de fondo de una celda identifica el sector: verde = cocina, gris = caja, rosa = apoyo, azul = cafetería y naranja = salón. Se muestra un punto con nombre accesible junto a cada tramo, en el calendario de escritorio, móvil, vista previa y vista compartida. El sector se conserva al editar las horas y al mover el turno. El amarillo de los francos y el violeta de los encabezados no son sectores. La lectura usa los píxeles de imágenes/PDF y los rellenos RGB disponibles en Excel; el exportador actual de Excel exporta los horarios como texto, sin colores.
+
 La regresión del OCR real usa el recorte de tres filas de Nahiara Arce, sin guardar la imagen en el repositorio. En PowerShell: asigná su ruta a `$env:SCHEDULE_OCR_IMAGE` y ejecutá `npm run test:ocr`. Comprueba automáticamente el nombre y los siete casilleros con los mismos límites de celdas, preparación de píxeles y configuración de OCR que usa la aplicación.
+
+Para la captura con sectores de Aylin, Karen y otras seis personas, asigná además `$env:SCHEDULE_OCR_CASE = "sectors"`. Esta regresión verifica los 56 casilleros y sus sectores. El azul se verifica en las pruebas de colores porque no aparece en esa captura.
 
 ## Getting Started
 

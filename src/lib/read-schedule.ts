@@ -1,15 +1,19 @@
 import * as XLSX from "xlsx";
 import { mergeImports, parseSchedule, type ImportResult, type Word } from "./schedule-import";
-import { readGrid } from "./schedule-grid";
+import { readGrid, detectGrid, cellSector } from "./schedule-grid";
+import { sectorFromRgb } from "./shift-sectors";
 
 export async function readSchedule(file: File, year: number, month?: number): Promise<ImportResult> {
   if (/\.(xlsx|xls)$/i.test(file.name)) {
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true, cellStyles: true });
     return mergeImports(workbook.SheetNames.map(name => {
       const rows = XLSX.utils.sheet_to_json<(string | number | Date)[]>(workbook.Sheets[name], { header: 1, defval: "" });
       const words: Word[] = rows.flatMap((row, y) => row.flatMap((value, x) => {
         const text = value instanceof Date ? `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}` : String(value).trim();
-        return text ? [{ text, bbox: { x0: x * 300, x1: x * 300 + 100, y0: y * 30, y1: y * 30 + 20 } }] : [];
+        const style = workbook.Sheets[name][XLSX.utils.encode_cell({ r: y, c: x })]?.s as { fgColor?: { rgb?: string } } | undefined;
+        const rgb = style?.fgColor?.rgb?.slice(-6);
+        const sector = rgb && /^[\da-f]{6}$/i.test(rgb) ? sectorFromRgb(parseInt(rgb.slice(0, 2), 16), parseInt(rgb.slice(2, 4), 16), parseInt(rgb.slice(4, 6), 16)) : undefined;
+        return text ? [{ text, ...(sector ? { sector } : {}), bbox: { x0: x * 300, x1: x * 300 + 100, y0: y * 30, y1: y * 30 + 20 } }] : [];
       }));
       // A month/year in the sheet title is also a valid table heading.
       words.unshift({ text: name, bbox: { x0: 0, x1: 100, y0: -30, y1: -10 } });
@@ -22,14 +26,14 @@ export async function readSchedule(file: File, year: number, month?: number): Pr
     worker ??= await createWorker(["spa", "eng"]);
     const context = canvas.getContext("2d");
     if (!context) throw new Error("No se pudo procesar la imagen.");
-    const gridWords = await readGrid(context.getImageData(0, 0, canvas.width, canvas.height), async (pixels, numeric, mode) => {
+    const gridWords = await readGrid(context.getImageData(0, 0, canvas.width, canvas.height), async (pixels, numeric, mode, whitelist) => {
       const cell = document.createElement("canvas");
       cell.width = pixels.width; cell.height = pixels.height;
       const cellContext = cell.getContext("2d")!;
       const frame = cellContext.createImageData(pixels.width, pixels.height);
       frame.data.set(pixels.data);
       cellContext.putImageData(frame, 0, 0);
-      await worker!.setParameters({ tessedit_pageseg_mode: mode === "7" ? PSM.SINGLE_LINE : PSM.SINGLE_BLOCK, tessedit_char_whitelist: numeric ? "0123456789/-" : "", user_defined_dpi: "300" });
+      await worker!.setParameters({ tessedit_pageseg_mode: mode === "7" ? PSM.SINGLE_LINE : PSM.SINGLE_BLOCK, tessedit_char_whitelist: whitelist ?? (numeric ? "0123456789/-" : ""), user_defined_dpi: "300" });
       return (await worker!.recognize(cell)).data.text;
     });
     if (gridWords.some(w => /colaborador|empleado|nombre/i.test(w.text))) return gridWords;
@@ -62,11 +66,20 @@ export async function readSchedule(file: File, year: number, month?: number): Pr
               y0: tx[5] - height, y1: tx[5],
             } }));
           });
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+          await page.render({ canvas, viewport }).promise;
           if (!words.some(w => /colaborador|empleado|nombre/i.test(w.text))) {
-            const canvas = document.createElement("canvas");
-            canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-            await page.render({ canvas, viewport }).promise;
             words = await recognize(canvas);
+          } else {
+            const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
+            const cells = detectGrid(pixels).flat();
+            words = words.map(word => {
+              const x = (word.bbox.x0 + word.bbox.x1) / 2, y = (word.bbox.y0 + word.bbox.y1) / 2;
+              const cell = cells.find(c => x >= c.x0 && x < c.x1 && y >= c.y0 && y < c.y1);
+              const sector = cell ? cellSector(pixels, cell) : undefined;
+              return sector ? { ...word, sector } : word;
+            });
           }
           documentWords.push(...words.map(w => ({ ...w, bbox: { ...w.bbox, y0: w.bbox.y0 + pageOffset, y1: w.bbox.y1 + pageOffset } })));
           pageOffset += viewport.height + 100;

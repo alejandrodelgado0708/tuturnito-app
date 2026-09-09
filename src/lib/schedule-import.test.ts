@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mergeImports, parseSchedule, parseShift, type Word } from "./schedule-import";
+import { sectorFromRgb } from "./shift-sectors";
+import { cellSector } from "./schedule-grid";
 
 function table(rows: string[][], offsetX = 0, offsetY = 0): Word[] {
   return rows.flatMap((row, y) => row.flatMap((text, x) => text ? [{ text, bbox: {
@@ -90,6 +92,41 @@ test("validates time ranges without corrupting overnight or split shifts", () =>
   assert.equal(parseShift("25-28"), undefined);
   assert.equal(parseShift("08:75-16:00"), undefined);
   assert.equal(parseShift("8 a"), undefined);
+});
+
+test("compact split shifts keep their sector on both ranges", () => {
+  for (const text of ["9 a 16/18 a 20", "9a16/18a20", "09 A 16 / 18 A 20"]) {
+    assert.deepEqual(parseShift(text, "cocina"), [
+      { from: "09:00", to: "16:00", sector: "cocina" },
+      { from: "18:00", to: "20:00", sector: "cocina" },
+    ]);
+  }
+  assert.equal(parseShift("FRANCO", "caja"), null);
+  assert.deepEqual(parseShift("PLANTA / local", "apoyo"), { from: "PLANTA / local", to: "", sector: "apoyo" });
+});
+
+test("background colors map to sectors; yellow and purple do not", () => {
+  assert.equal(sectorFromRgb(52, 168, 83), "cocina");
+  assert.equal(sectorFromRgb(204, 204, 204), "caja");
+  assert.equal(sectorFromRgb(193, 122, 160), "apoyo");
+  assert.equal(sectorFromRgb(241, 142, 134), "apoyo");
+  assert.equal(sectorFromRgb(59, 130, 246), "cafeteria");
+  assert.equal(sectorFromRgb(250, 187, 4), "salon");
+  assert.equal(sectorFromRgb(255, 255, 0), undefined);
+  assert.equal(sectorFromRgb(180, 167, 214), undefined);
+  assert.equal(sectorFromRgb(255, 255, 255), undefined);
+  const data = new Uint8ClampedArray(40 * 20 * 4);
+  for (let i = 0; i < data.length; i += 4) data.set([52, 168, 83, 255], i);
+  for (let y = 7; y < 12; y++) for (let x = 10; x < 25; x++) data.set([0, 0, 0, 255], (y * 40 + x) * 4);
+  assert.equal(cellSector({ data, width: 40, height: 20 }, { x0: 0, y0: 0, x1: 40, y1: 20 }), "cocina");
+});
+
+test("sector metadata survives table parsing and JSON persistence", () => {
+  const words = table([["Nombre", "2026-09-07"], ["Ana", "9 a 16/18 a 20"]]);
+  words.at(-1)!.sector = "cafeteria";
+  const result = parseSchedule(words, 2026);
+  const persisted = JSON.parse(JSON.stringify(result));
+  assert.deepEqual(persisted.rows[0].shifts["2026-09-07"], parseShift("9 a 16/18 a 20", "cafeteria"));
 });
 
 test("an invalid date cannot move its hours into an adjacent valid day", () => {
