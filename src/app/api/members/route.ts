@@ -56,7 +56,13 @@ export async function POST(req: Request) {
   const { name, email, role, shifts, can_upload } = body;
   if (!name || !email) return NextResponse.json({ error: "Falta nombre/email" }, { status: 400 });
   const svc = service();
-  const { data, error } = await svc.from("team_members").insert({ owner_id: user.id, name: name.trim(), email: email.toLowerCase().trim(), role: role || "own", shifts: shifts || {}, can_upload: can_upload ?? true }).select().single();
+  let payload:any={ owner_id: user.id, name: name.trim(), email: email.toLowerCase().trim(), role: role || "own", shifts: shifts || {}, can_upload: can_upload ?? true };
+  let { data, error } = await svc.from("team_members").insert(payload).select().single();
+  if(error && error.message.includes("can_upload")){
+    delete payload.can_upload;
+    const r2=await svc.from("team_members").insert(payload).select().single();
+    data=r2.data; error=r2.error;
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
 }
@@ -73,7 +79,12 @@ export async function PATCH(req: Request) {
   if (shifts !== undefined) updates.shifts = shifts;
   if (role !== undefined) updates.role = role;
   if (can_upload !== undefined) updates.can_upload = can_upload;
-  const { data, error } = await svc.from("team_members").update(updates).eq("id", id).select().single();
+  let { data, error } = await svc.from("team_members").update(updates).eq("id", id).select().single();
+  if(error && error.message.includes("can_upload")){
+    delete updates.can_upload;
+    const r2=await svc.from("team_members").update(updates).eq("id", id).select().single();
+    data=r2.data; error=r2.error;
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
 }
