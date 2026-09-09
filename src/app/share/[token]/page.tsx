@@ -68,7 +68,7 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
           <div className="bg-white border border-zinc-200 rounded-xl p-12 text-center text-sm text-zinc-500">El tablero aún no tiene miembros o no tienes permiso para verlos.</div>
         ) : (
           <>
-          <div className="hidden sm:block bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
+          <div className="hidden sm:block bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm mt-[10px]">
             <div className="overflow-auto">
               <table className="w-full text-[15px] border-collapse min-w-[900px]">
                 <thead>
@@ -124,7 +124,7 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
               </table>
             </div>
           </div>
-          <div className="sm:hidden space-y-3">
+          <div className="sm:hidden space-y-3 mt-[10px]">
             {members.map((person:any)=>(
               <div key={person.id} className="bg-white rounded-xl border border-zinc-200 overflow-hidden shadow-sm">
                 <div className="px-3 py-2.5 border-b border-zinc-100 flex items-center gap-2 bg-zinc-50/50">
