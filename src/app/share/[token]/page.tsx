@@ -70,6 +70,11 @@ export default function SharePage(){
   const [editing,setEditing]=useState<{pid:string,date:string}|null>(null);
   const [editFrom,setEditFrom]=useState(""); const [editTo,setEditTo]=useState(""); const [editFrom2,setEditFrom2]=useState(""); const [editTo2,setEditTo2]=useState("");
   const fileRef=useRef<HTMLInputElement>(null);
+  const [importOpen,setImportOpen]=useState(false);
+  const [importRows,setImportRows]=useState<any[]>([]);
+  const [importDates,setImportDates]=useState<string[]>([]);
+  const [importLoading,setImportLoading]=useState(false);
+  const [allMembers,setAllMembers]=useState<any[]>([]);
 
   const dates=useMemo(()=>Array.from({length:days},(_,i)=>toISO(addDays(parseISO(start),i))),[start,days]);
 
@@ -78,7 +83,7 @@ export default function SharePage(){
     const res=await fetch(`/api/share-data?token=${token}`);
     const j=await res.json();
     if(!res.ok){ setError(j.error||"Error"); setLoading(false); return; }
-    setInvite(j.invite); setMembers(j.members);
+    setInvite(j.invite); setMembers(j.members); setAllMembers(j.allMembers || j.members);
     setLoading(false);
   }
   useEffect(()=>{ if(token) load(); },[token]);
@@ -112,6 +117,22 @@ export default function SharePage(){
       setEditFrom(n[0]?.from||""); setEditTo(n[0]?.to||""); setEditFrom2(n[1]?.from||""); setEditTo2(n[1]?.to||"");
     } else { setEditFrom(""); setEditTo(""); setEditFrom2(""); setEditTo2(""); }
     setEditing({pid,date});
+  }
+  async function confirmImportShare(){
+    setImportLoading(true);
+    const toImport=importRows.filter((r:any)=>r.targetId!=="skip");
+    for(const row of toImport){
+      if(row.targetId==="new"){
+        const email=`${row.excelName.toLowerCase().replace(/\s+/g,".")}@import.local`;
+        await fetch("/api/share-update",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({token, memberId:"new", name: row.excelName, email, role:"own", shifts: row.shifts})});
+      } else {
+        const person=members.find((p:any)=>p.id===row.targetId) || allMembers.find((p:any)=>p.id===row.targetId);
+        if(!person) continue;
+        const merged={...person.shifts, ...row.shifts};
+        await fetch("/api/share-update",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({token, memberId: row.targetId, shifts: merged})});
+      }
+    }
+    setImportLoading(false); setImportOpen(false); await load();
   }
   async function handleImportShare(e: React.ChangeEvent<HTMLInputElement>){
     const f=(e.target as HTMLInputElement).files?.[0]; if(!f) return;
@@ -320,6 +341,32 @@ export default function SharePage(){
           ))}
         </div>
       </div>
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={()=>setImportOpen(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="px-6 pt-6 pb-3 border-b"><h2 className="text-lg font-bold">Importar — Asignar</h2><p className="text-sm text-zinc-500">Detectadas {importRows.length} personas. Elige a quién derivar.</p><p className="text-xs text-zinc-400">Fechas: {importDates.join(", ")}</p></div>
+            <div className="flex-1 overflow-auto px-6 py-4 space-y-3">
+              {importRows.map((row:any,idx:number)=>(
+                <div key={idx} className="border rounded-xl p-3 bg-zinc-50/50">
+                  <div className="text-sm font-semibold">{row.excelName} · {Object.keys(row.shifts).length} días</div>
+                  <select value={row.targetId} onChange={e=>setImportRows((r:any)=>r.map((x:any,i:number)=>i===idx?{...x,targetId:e.target.value}:x))} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="skip">— No importar —</option>
+                    {allMembers.map((p:any)=>(<option key={p.id} value={p.id}>{p.name} — {p.email}</option>))}
+                    <option value="new">+ Crear nuevo — {row.excelName}</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-4 bg-zinc-50 border-t flex gap-2 justify-end">
+              <button onClick={()=>setImportOpen(false)} className="px-4 py-2 rounded-lg border bg-white text-sm">Cancelar</button>
+              <button onClick={confirmImportShare} disabled={importLoading} className="px-5 py-2 rounded-lg bg-[#02B681] text-white text-sm font-semibold disabled:opacity-50">{importLoading?"Importando...":"Confirmar ("+importRows.filter((r:any)=>r.targetId!=="skip").length+")"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <footer className="py-4 text-center text-xs text-zinc-400">TuTurnito · link {token.slice(0,8)}</footer>
     </div>
   );

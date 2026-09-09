@@ -13,6 +13,14 @@ export async function POST(req: Request){
     const {data: me}=await svc.from("team_members").select("id").eq("email", invite.email.toLowerCase()).eq("owner_id", invite.owner_id).maybeSingle();
     if(me && me.id!==memberId) return NextResponse.json({error:"Solo podés editar tu horario"},{status:403});
   }
+  if(memberId==="new"){
+    if(!invite || invite.role!=="all") return NextResponse.json({error:"No tenés permiso para crear personas"},{status:403});
+    const {name, email, role, shifts: s2}=body;
+    if(!name || !email) return NextResponse.json({error:"Falta nombre/email para crear"},{status:400});
+    const {error}=await svc.from("team_members").insert({owner_id: invite.owner_id, name, email: email.toLowerCase(), role: role||"own", shifts: s2||shifts||{}}); 
+    if(error) return NextResponse.json({error:error.message},{status:400});
+    return NextResponse.json({ok:true});
+  }
   if(shifts!==undefined){
     const {error}=await svc.from("team_members").update({shifts}).eq("id", memberId);
     if(error) return NextResponse.json({error:error.message},{status:400});
