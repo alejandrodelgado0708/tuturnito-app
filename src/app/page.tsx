@@ -292,9 +292,23 @@ export default function Home(){
     XLSX.writeFile(wb,`tuturnito-${start}.xlsx`);
   }
   function downloadTemplate(){
-    const tplDates=Array.from({length:7},(_,i)=> toISO(addDays(new Date(),i)));
-    const ws=XLSX.utils.aoa_to_sheet([["Nombre",...tplDates],["Ejemplo Ana","08:00-16:00","14:00-22:00","LIBRE","","","08:00-12:00",""]]);
-    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Plantilla");
+    const header=["Nombre",...dates];
+    const ex1=["Ana García", ...dates.map((_,i)=> i===2?"Franco": i===6?"08:00-12:00 / 14:00-18:00" : "08:00-16:00")];
+    const ex2=["Carlos Pérez", ...dates.map((_,i)=> i===1?"Franco": i===4?"Franco":"14:00-22:00")];
+    const ws=XLSX.utils.aoa_to_sheet([header, ex1, ex2, Array(header.length).fill("")]);
+    ws["!cols"]=[{wch:20}, ...dates.map(()=>({wch:13}))];
+    const ws2=XLSX.utils.aoa_to_sheet([
+      ["Instrucciones Tuturnito"],
+      ["1. Columna A = Nombre de la persona"],
+      ["2. Columnas siguientes = fechas en formato YYYY-MM-DD (ej: "+dates[0]+")"],
+      ["3. Celdas: 08:00-16:00 | 08:00-12:00 / 14:00-18:00 (cortado) | Franco | vacío"],
+      ["4. Guarda e importa con Importar Excel/PDF/Imagen"],
+      ["5. Luego asigna a quién derivar cada fila"],
+    ]);
+    ws2["!cols"]=[{wch:60}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"Plantilla");
+    XLSX.utils.book_append_sheet(wb,ws2,"Instrucciones");
     XLSX.writeFile(wb,"plantilla-tuturnito.xlsx");
   }
 
@@ -437,10 +451,12 @@ export default function Home(){
               </tbody>
             </table>
           </div>
-          <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex flex-wrap gap-2 text-xs text-zinc-600">
+          <div className="px-4 py-3 bg-zinc-50 border-t border-zinc-200 flex flex-wrap gap-3 text-xs text-zinc-600 items-center">
             <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-[#02B681] inline-block"/> Turno</span>
             <span className="flex items-center gap-1"><span className="h-3 w-3 rounded border border-dashed border-zinc-300 inline-block"/> Libre — clic para editar</span>
-            <span className="ml-auto">Arrastra un turno a otra celda para moverlo · Clic para editar horas</span>
+            <span className="hidden sm:inline-flex items-center gap-1 text-zinc-300">·</span>
+            <SectorLegend />
+            <span className="ml-auto hidden sm:inline">Arrastra un turno a otra celda para moverlo · Clic para editar horas</span>
           </div>
         </div>
 
