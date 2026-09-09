@@ -86,6 +86,14 @@ export async function PATCH(req: Request) {
     data=r2.data; error=r2.error;
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if(data){
+    try{
+      const upd:any={};
+      if(role!==undefined) upd.role=role;
+      if(can_upload!==undefined) upd.can_upload=can_upload;
+      if(Object.keys(upd).length) await svc.from("share_invites").update(upd).eq("email", (data as any).email.toLowerCase()).eq("owner_id", (data as any).owner_id);
+    }catch{}
+  }
   return NextResponse.json(data);
 }
 
