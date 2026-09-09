@@ -377,13 +377,13 @@ export default function Home(){
                             <div className="relative z-10 flex flex-col gap-1.5 bg-white p-2 rounded-xl border-2 border-[#02B681] shadow-lg min-w-[170px]">
                               <div className="text-[11px] font-bold text-zinc-700">Horario</div>
                               <div className="flex gap-1">
-                                <input type="time" value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
-                                <input type="time" value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                               </div>
                               <div className="flex items-center gap-1 text-[10px] text-zinc-400"><span className="flex-1 h-px bg-zinc-200"/>cortado<span className="flex-1 h-px bg-zinc-200"/></div>
                               <div className="flex gap-1">
-                                <input type="time" value={editFrom2} onChange={e=>setEditFrom2(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
-                                <input type="time" value={editTo2} onChange={e=>setEditTo2(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom2} onChange={e=>setEditFrom2(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
+                                <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo2} onChange={e=>setEditTo2(e.target.value)} className="w-full border-2 border-zinc-200 rounded-lg px-1.5 py-1.5 text-xs bg-white text-zinc-900 focus:border-[#02B681] focus:outline-none"/>
                               </div>
                               <div className="flex gap-1 pt-1">
                                 <button onClick={handleSave} className="flex-1 bg-[#02B681] text-white rounded-lg text-xs py-2 font-semibold hover:bg-[#02996f]">Guardar</button>
@@ -453,11 +453,11 @@ export default function Home(){
                       <div className="text-[11px] font-semibold text-zinc-900">{fmtDate(d)}</div>
                       {editingHere ? (
                         <div className="w-full flex flex-col gap-1">
-                          <input type="time" value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
-                          <input type="time" value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom} onChange={e=>setEditFrom(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                          <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo} onChange={e=>setEditTo(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
                           <div className="flex gap-1">
-                            <input type="time" value={editFrom2} onChange={e=>setEditFrom2(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
-                            <input type="time" value={editTo2} onChange={e=>setEditTo2(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                            <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editFrom2} onChange={e=>setEditFrom2(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
+                            <input type="text" inputMode="numeric" placeholder="HH:MM" maxLength={5} value={editTo2} onChange={e=>setEditTo2(e.target.value)} className="w-full border border-zinc-200 rounded px-1 py-1 text-xs bg-white text-zinc-900"/>
                           </div>
                           <button onClick={handleSave} className="bg-[#02B681] text-white rounded text-xs py-1 font-semibold">Guardar</button>
                           <button onClick={()=>{updateShift(person.id,iso,null); setEditing(null);}} className="bg-red-50 border border-red-200 text-red-600 rounded text-xs py-1 font-bold">Franco</button>
