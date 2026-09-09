@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px">
+<tr><td align="center">
+<table width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e4e4e7">
+<tr><td align="center" style="padding:32px 32px 16px">
+<img src="{{ .SiteURL }}/logo.png" alt="TuTurnito" width="140" style="display:block" />
+</td></tr>
+<tr><td align="center" style="padding:8px 32px 0">
+<h1 style="margin:0;font-size:22px;color:#18181b">¡Bienvenido a TuTurnito! 💚</h1>
+<p style="margin:12px 0 0;font-size:14px;color:#71717a;line-height:20px">
+Gracias por crear tu cuenta. Estás a un clic de gestionar tus <b style="color:#02B681">horarios rotativos</b> de forma simple y rápida.
+</p>
+</td></tr>
+<tr><td align="center" style="padding:24px 32px">
+<a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#02B681;color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:10px;font-weight:700;font-size:15px">Confirmar mi cuenta</a>
+<p style="margin:12px 0 0;font-size:12px;color:#a1a1aa">Este enlace expira en 24 horas</p>
+</td></tr>
+<tr><td style="padding:0 32px">
+<div style="background:#f4fdf7;border:1px solid #02B68120;border-radius:10px;padding:16px">
+<p style="margin:0;font-size:13px;color:#3f3f46;line-height:18px">
+<b>¿Qué sigue?</b><br/>
+1. Confirma tu email con el botón de arriba<br/>
+2. Inicia sesión y carga tus turnos<br/>
+3. ¡Organiza tu equipo en segundos!
+</p>
+</div>
+</td></tr>
+<tr><td align="center" style="padding:16px 32px 24px">
+<p style="margin:0;font-size:12px;color:#a1a1aa">Si no creaste esta cuenta, ignora este correo.</p>
+<p style="margin:8px 0 0;font-size:11px;color:#a1a1aa">¿Problemas con el botón? Copia este enlace:<br/><a href="{{ .ConfirmationURL }}" style="color:#02B681;word-break:break-all">{{ .ConfirmationURL }}</a></p>
+</td></tr>
+<tr><td align="center" style="background:#02B681;padding:14px 32px">
+<p style="margin:0;font-size:12px;color:#ffffff;opacity:0.9">TuTurnito · Horarios que se adaptan a ti</p>
+</td></tr>
+</table>
+<p style="font-size:11px;color:#a1a1aa;margin-top:16px">© 2026 TuTurnito</p>
+</td></tr>
+</table>
+</body>
+</html>
