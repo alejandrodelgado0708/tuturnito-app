@@ -45,10 +45,10 @@ export async function POST(req: Request) {
   const user = await getUser();
   if (!user) return NextResponse.json({ error: "No auth" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
-  const { name, email, role } = body;
+  const { name, email, role, shifts } = body;
   if (!name || !email) return NextResponse.json({ error: "Falta nombre/email" }, { status: 400 });
   const svc = service();
-  const { data, error } = await svc.from("team_members").insert({ owner_id: user.id, name: name.trim(), email: email.toLowerCase().trim(), role: role || "own", shifts: {} }).select().single();
+  const { data, error } = await svc.from("team_members").insert({ owner_id: user.id, name: name.trim(), email: email.toLowerCase().trim(), role: role || "own", shifts: shifts || {} }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
 }

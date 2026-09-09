@@ -50,6 +50,11 @@ export default function Home(){
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRows, setImportRows] = useState<{excelName:string, shifts:Record<string,Shift>, targetId:string}[]>([]);
+  const [importDates, setImportDates] = useState<string[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+
   const dates = useMemo(()=>{
     const s=parseISO(start);
     return Array.from({length:days},(_,i)=> toISO(addDays(s,i)));
@@ -180,7 +185,7 @@ export default function Home(){
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>){
     const f=e.target.files?.[0]; if(!f) return;
     const reader=new FileReader();
-    reader.onload = async (ev)=>{
+    reader.onload = (ev)=>{
       const data=ev.target?.result;
       const wb=XLSX.read(data,{type:"array"});
       const ws=wb.Sheets[wb.SheetNames[0]];
@@ -195,7 +200,7 @@ export default function Home(){
         if(!isNaN(d.getTime())) return toISO(d);
         return s;
       });
-      for(const r of (json.slice(1) as string[][]).filter(r=> String(r[0]).trim())){
+      const rows = (json.slice(1) as string[][]).filter(r=> String(r[0]).trim()).map(r=>{
         const shifts:Record<string,Shift>={};
         dateCols.forEach((_,i)=>{
           const raw=String(r[i+1]??"").trim();
@@ -213,14 +218,35 @@ export default function Home(){
             shifts[parsedDates[i]]={from:a,to:b};
           } else shifts[parsedDates[i]]={from:raw,to:""};
         });
-        await fetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:String(r[0]).trim(), email: `${String(r[0]).trim().toLowerCase().replace(/\s+/g,".")}@import.local`, role:"own"})}).catch(()=>{});
-      }
-      await fetchMembers();
-      const firstValid=parsedDates.find(d=>/^\d{4}-\d{2}-\d{2}$/.test(d));
-      if(firstValid){ setStart(firstValid); setDays(parsedDates.length); }
+        const excelName=String(r[0]).trim();
+        const match = people.find(p=>p.name.toLowerCase()===excelName.toLowerCase() || p.email?.toLowerCase()===excelName.toLowerCase());
+        return {excelName, shifts, targetId: match ? match.id : "new"};
+      });
+      setImportRows(rows);
+      setImportDates(parsedDates);
+      setImportOpen(true);
     };
     reader.readAsArrayBuffer(f);
     e.target.value="";
+  }
+  async function confirmImport(){
+    setImportLoading(true);
+    for(const row of importRows){
+      if(row.targetId==="new"){
+        const email = `${row.excelName.toLowerCase().replace(/\s+/g,".")}@import.local`;
+        await fetch("/api/members",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name: row.excelName, email, role:"own", shifts: row.shifts})});
+      } else {
+        const person = people.find(p=>p.id===row.targetId);
+        if(!person) continue;
+        const merged = {...person.shifts, ...row.shifts};
+        await fetch("/api/members",{method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id: row.targetId, shifts: merged})});
+      }
+    }
+    setImportLoading(false);
+    setImportOpen(false);
+    await fetchMembers();
+    const firstValid=importDates.find(d=>/^\d{4}-\d{2}-\d{2}$/.test(d));
+    if(firstValid){ setStart(firstValid); setDays(importDates.length); }
   }
 
   function handleExport(){
@@ -425,7 +451,7 @@ export default function Home(){
                           <button onClick={()=>setEditing(null)} className="text-xs text-zinc-500">×</button>
                         </div>
                       ) : isFranco ? (
-                        <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-red-50 border border-red-200 text-red-600 text-xs font-bold grid place-items-center">Franco</button>
+                        <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-red-100 border-2 border-red-300 text-red-700 text-xs font-extrabold flex items-center justify-center tracking-wide min-h-[48px]">FRANCO</button>
                       ) : n ? (
                         <button onClick={()=>openEdit(person.id,iso)} className="w-full flex-1 rounded bg-[#02B681] text-white text-[11px] font-semibold flex flex-col items-center justify-center leading-tight p-1">
                           {n.map((s,i)=>(<span key={i}>{s.from}—{s.to}</span>))}
@@ -512,6 +538,41 @@ export default function Home(){
                 <button onClick={()=>setShowLinkModal(false)} className="flex-1 bg-[#02B681] text-white rounded-lg py-2 text-sm font-semibold hover:bg-[#02996f]">Listo</button>
               </div>
               <p className="text-xs text-zinc-400 mt-3 text-center">También se envió por email.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={()=>setImportOpen(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="px-6 pt-6 pb-3 border-b border-zinc-100">
+              <h2 className="text-lg font-bold text-zinc-900">Importar Excel — Asignar horarios</h2>
+              <p className="text-sm text-zinc-500 mt-1">El Excel trae {importRows.length} personas. Elige a quién derivar cada fila.</p>
+              <p className="text-xs text-zinc-400 mt-1">Fechas detectadas: {importDates.join(", ")}</p>
+            </div>
+            <div className="flex-1 overflow-auto px-6 py-4 space-y-3">
+              {importRows.map((row, idx)=>(
+                <div key={idx} className="border border-zinc-200 rounded-xl p-3 bg-zinc-50/50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-semibold text-zinc-900">{row.excelName}</span>
+                    <span className="text-xs text-zinc-500">· {Object.keys(row.shifts).length} días</span>
+                    <span className="ml-auto text-xs text-zinc-400 hidden sm:block">{Object.entries(row.shifts).slice(0,2).map(([d,s])=>d+":"+(s===null?"Franco":Array.isArray(s)?(s as any).map((x:any)=>x.from+"-"+x.to).join("/"):(s as any).from+"-"+(s as any).to)).join(" · ")}</span>
+                  </div>
+                  <label className="text-xs font-semibold text-zinc-700">Derivar a</label>
+                  <select value={row.targetId} onChange={e=> setImportRows(r=> r.map((x,i)=> i===idx?{...x, targetId:e.target.value}:x))} className="mt-1 w-full border border-zinc-200 rounded-lg px-3 py-2 text-sm bg-white text-zinc-900">
+                    <option value="new">+ Crear nuevo — {row.excelName}</option>
+                    {people.map(p=>(
+                      <option key={p.id} value={p.id}>{p.name} — {p.email} {p.name.toLowerCase()===row.excelName.toLowerCase()?"(sugerido)":""}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex gap-2 justify-end">
+              <button onClick={()=>setImportOpen(false)} className="px-4 py-2 rounded-lg border border-zinc-200 bg-white text-sm">Cancelar</button>
+              <button onClick={confirmImport} disabled={importLoading} className="px-5 py-2 rounded-lg bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 disabled:opacity-50">{importLoading?"Importando...":"Confirmar ("+importRows.length+")"}</button>
             </div>
           </div>
         </div>

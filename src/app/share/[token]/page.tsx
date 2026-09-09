@@ -143,7 +143,7 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
                       <div key={iso} className={`rounded-lg border p-1.5 flex flex-col items-center gap-1 min-h-[86px] ${isWE?"bg-[#02B681]/5 border-[#02B681]/20":"bg-white border-zinc-200"}`}>
                         <div className={`text-[10px] font-bold ${isWE?"text-[#02B681]":"text-zinc-500"}`}>{DAY_NAMES[d.getDay()]}</div>
                         <div className="text-[11px] font-semibold text-zinc-900">{fmtDate(d)}</div>
-                        {isFranco ? <div className="w-full flex-1 rounded bg-red-50 border border-red-200 text-red-600 text-xs font-bold grid place-items-center">Franco</div>
+                        {isFranco ? <div className="w-full flex-1 rounded bg-red-100 border-2 border-red-300 text-red-700 text-xs font-extrabold flex items-center justify-center tracking-wide min-h-[48px]">FRANCO</div>
                         : arr ? <div className="w-full flex-1 rounded bg-[#02B681] text-white text-[11px] font-semibold flex flex-col items-center justify-center leading-tight p-1">{arr.map((s:any,i:number)=>(<span key={i}>{s.from}—{s.to}</span>))}{arr.length===2 && <span className="text-[8px] opacity-70">cortado</span>}</div>
                         : <div className="w-full flex-1 rounded border border-dashed border-zinc-300 text-zinc-400 text-xs grid place-items-center">—</div>}
                       </div>
