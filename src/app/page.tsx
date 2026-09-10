@@ -75,6 +75,10 @@ export default function Home(){
   const [permEdit, setPermEdit] = useState<Person | null>(null);
   const [permRole, setPermRole] = useState<Role>("own");
   const [permCanUpload, setPermCanUpload] = useState(true);
+  const [publicLinkOpen, setPublicLinkOpen] = useState(false);
+  const [publicLinkSlug, setPublicLinkSlug] = useState("");
+  const [publicLinkExists, setPublicLinkExists] = useState(false);
+  const [publicLinkLoading, setPublicLinkLoading] = useState(false);
 
   const [importReading, setImportReading] = useState(false);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
@@ -136,6 +140,29 @@ export default function Home(){
       setTimeout(()=>setCopiedId(null), 2000);
     }catch(e:any){ alert(e.message); }
   }
+  async function copyPublicLink(){
+    try{
+      const res=await apiFetch(`/api/public-link`, {method:"GET"});
+      if(!res.ok){ const j=await res.json(); throw new Error(j.error||"Error"); }
+      const j=await res.json();
+      const siteUrl=process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || (process.env.VERCEL_URL?`https://${process.env.VERCEL_URL}`:new URL(window.location.href).origin);
+      const link=j?.slug ? `${siteUrl}/p/${j.slug}` : `${siteUrl}/p/${j.token}`;
+      await navigator.clipboard.writeText(link);
+      alert("Link público copiado: "+link);
+    }catch(e:any){ alert(e.message); }
+  }
+  async function createPublicLink(slug:string){
+    try{
+      const res=await apiFetch(`/api/public-link`, {method:"POST", body: JSON.stringify({slug})});
+      if(!res.ok){ const j=await res.json(); throw new Error(j.error||"Error"); }
+      await fetchMembers();
+      const siteUrl=process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || (process.env.VERCEL_URL?`https://${process.env.VERCEL_URL}`:new URL(window.location.href).origin);
+      const j=await res.json();
+      const link=j?.slug ? `${siteUrl}/p/${j.slug}` : `${siteUrl}/p/${j.token}`;
+      alert("Link público creado: "+link+"\nCopiado al portapapeles");
+      await navigator.clipboard.writeText(link);
+    }catch(e:any){ alert(e.message); }
+  }
   async function fetchMembers(){
     setLoading(true);
     try{
@@ -146,10 +173,21 @@ export default function Home(){
     setLoading(false);
   }
 
+  async function checkPublicLink(){
+    try{
+      const res=await apiFetch(`/api/public-link`);
+      if(res.ok){
+        const j=await res.json();
+        setPublicLinkExists(!!j);
+        if(j?.slug) setPublicLinkSlug(j.slug);
+      }
+    }catch{}
+  }
   useEffect(()=>{
     const supabase = createClient();
     supabase.auth.getUser().then(({data})=> setUserEmail(data.user?.email ?? null));
     fetchMembers();
+    checkPublicLink();
   },[]);
 
   async function updateShift(pid:string, date:string, shift:Shift | undefined){
@@ -342,6 +380,7 @@ export default function Home(){
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png,.webp" onChange={handleImport} className="hidden"/>
             <button disabled={importReading || !canUpload} title={!canUpload?"No tenés permiso para subir horarios":""} onClick={()=>fileRef.current?.click()} className={`text-xs sm:text-sm px-4 py-2 rounded-lg border font-medium ${!canUpload?"bg-zinc-100 text-zinc-400 border-zinc-200 cursor-not-allowed":"bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50"}`}>{importReading ? "Leyendo documento..." : "Importar Excel/PDF/Imagen"}</button>
             <button onClick={handleExport} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-[#02B681] text-white hover:bg-[#02996f] font-medium">Exportar</button>
+            <button onClick={()=>setPublicLinkOpen(true)} className="text-xs sm:text-sm px-4 py-2 rounded-lg bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50 font-medium">Link público</button>
             {userEmail && <span className="hidden lg:inline text-xs text-zinc-500 max-w-[150px] truncate">{userEmail}</span>}
             <button onClick={async()=>{ const s=createClient(); await s.auth.signOut(); router.push("/login"); }} className="text-xs sm:text-sm px-3 py-2 rounded-lg border border-zinc-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200">Salir</button>
           </div>
@@ -736,6 +775,40 @@ export default function Home(){
             <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex justify-end gap-2">
               <button onClick={()=>setImportErrorMsg(null)} className="px-5 py-2 rounded-lg bg-[#02B681] text-white text-sm font-semibold">Entendido</button>
               <label className="px-5 py-2 rounded-lg border border-zinc-200 bg-white text-sm font-semibold cursor-pointer">Reintentar<input type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden" onChange={(e)=>{ setImportErrorMsg(null); handleImport(e as any); }} /></label>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {publicLinkOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div onClick={()=>setPublicLinkOpen(false)} className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md border border-zinc-200 overflow-hidden">
+            <div className="px-6 pt-6 pb-2">
+              <h2 className="text-lg font-bold text-zinc-900">Link público de tu tabla</h2>
+              <p className="text-sm text-zinc-500 mt-1">Crea un link público que muestre tu tabla sin requerir login.</p>
+            </div>
+            <div className="px-6 py-4 flex flex-col gap-4">
+              {publicLinkExists ? (
+                <div className="p-3 rounded-lg bg-green-50 border border-green-200">
+                  <div className="text-sm font-semibold text-green-700">Link ya creado</div>
+                  <p className="text-xs text-green-600 mt-1">{publicLinkSlug ? "tuturnito.app/p/"+publicLinkSlug : "tuturnito.app/p/..."}</p>
+                  <div className="mt-2 flex gap-2">
+                    <button onClick={()=>{ navigator.clipboard.writeText("https://tuturnito.app/p/"+(publicLinkSlug||"token")); alert("Copiado"); }} className="px-3 py-2 rounded-lg bg-green-600 text-white text-sm font-medium">Copiar link</button>
+                    <button onClick={()=>{ setPublicLinkSlug(""); createPublicLink(""); }} className="px-3 py-2 rounded-lg border border-red-300 text-red-600 text-sm">Regenerar</button>
+                  </div>
+                </div>
+              ) : (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-xs font-semibold text-zinc-700">Nombre del link (opcional)</span>
+                  <input value={publicLinkSlug} onChange={e=>setPublicLinkSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,"-"))} placeholder="mi-equipo" className="border border-zinc-200 rounded-lg px-3 py-2.5 text-sm bg-white text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#02B681]/30 focus:border-[#02B681]"/>
+                  <p className="text-xs text-zinc-500">Dejá vacío para link aleatorio. Ej: tuturnito.app/p/mi-equipo</p>
+                </label>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-zinc-50 border-t border-zinc-200 flex gap-2 justify-end">
+              <button onClick={()=>setPublicLinkOpen(false)} className="px-4 py-2 rounded-lg border border-zinc-200 bg-white text-sm">Cancelar</button>
+              <button onClick={async()=>{ setPublicLinkLoading(true); if(publicLinkExists){ await apiFetch("/api/public-link",{method:"DELETE"}); setPublicLinkExists(false); } else { await createPublicLink(publicLinkSlug); } setPublicLinkOpen(false); checkPublicLink(); setPublicLinkLoading(false); }} disabled={publicLinkLoading} className="px-5 py-2 rounded-lg bg-[#02B681] text-white text-sm font-semibold hover:bg-[#02996f] disabled:opacity-50">{publicLinkLoading?"Guardando...":publicLinkExists?"Regenerar":"Crear link"}</button>
             </div>
           </div>
         </div>
